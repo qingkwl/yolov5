@@ -108,6 +108,8 @@ class Conv(nn.Cell):
     # @ms.ms_function
     def construct(self, x):
         tmp = self.act(self.conv(x))
+        # np.save('/data1/lirenda-yolov5s-total/lirenda-yolov5s-doOnV7/yolov7_mindspore_new/yolov5-pytorch/compare_ms_torch/' 
+        #         + self.__class__.__name__, tmp)
         return self.act(self.bn(self.conv(x)))
 
     def fuseforward(self, x):

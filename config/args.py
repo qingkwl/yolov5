@@ -23,7 +23,7 @@ def get_args_train():
     parser.add_argument('--recompute_layers', type=int, default=0)
     parser.add_argument('--weights', type=str, default='', help='initial weights path')
     parser.add_argument('--ema_weight', type=str, default='', help='initial ema weights path')
-    parser.add_argument('--cfg', type=str, default='./config/network/yolov5s.yaml', help='model.yaml path')
+    parser.add_argument('--cfg', type=str, default='./config/network_yolov5/yolov5s.yaml', help='model.yaml path')
     parser.add_argument('--data', type=str, default='./config/data/coco.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='config/data/hyp.scratch-low.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=300)
@@ -68,7 +68,7 @@ def get_args_train():
     parser.add_argument('--save_period', type=int, default=-1, help='Log model after every "save_period" epoch')
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--freeze', nargs='+', type=int, default=[0],
-                        help='Freeze layers: backbone of yolov5, first3=0 1 2')
+                        help='Freeze layers: backbone of yolov7=50, first3=0 1 2')
     parser.add_argument('--v5_metric', type=ast.literal_eval, default=False,
                         help='assume maximum recall as 1.0 in AP calculation')
 
@@ -76,7 +76,7 @@ def get_args_train():
     parser.add_argument('--run_eval', type=ast.literal_eval, default=True,
                         help='Whether do evaluation after some epoch')
     parser.add_argument('--eval_start_epoch', type=int, default=200, help='Start epoch interval to do evaluation')
-    parser.add_argument('--eval_epoch_interval', type=int, default=10, help='Epoch interval to do evaluation')
+    parser.add_argument('--eval_epoch_interval', type=int, default=1, help='Epoch interval to do evaluation')
     parser.add_argument('--conf_thres', type=float, default=0.001, help='object confidence threshold')
     parser.add_argument('--iou_thres', type=float, default=0.6, help='IOU threshold for NMS')
     parser.add_argument('--task', default='val', help='train, val, test, speed or study')
@@ -85,11 +85,11 @@ def get_args_train():
     parser.add_argument('--save_txt', action='store_true', help='save results to *.txt')
     parser.add_argument('--save_hybrid', action='store_true', help='save label+prediction hybrid results to *.txt')
     parser.add_argument('--save_conf', action='store_true', help='save confidences in --save-txt labels')
-    parser.add_argument('--save_json', type=ast.literal_eval, default=True,
-                        help='save a cocoapi-compatible JSON results file')
+    parser.add_argument('--save_json', action='store_true', help='save a cocoapi-compatible JSON results file')
     parser.add_argument('--no_trace', action='store_true', help='don`t trace model')
     parser.add_argument('--transfer_format', type=ast.literal_eval, default=True,
-                        help='whether transform data format to coco')
+                        help='whether transfer data format to coco')
+    parser.add_argument('--yolo_metric', type=ast.literal_eval, default=False, help='Whether use yolov5 map metric')
 
     # args for ModelArts
     parser.add_argument('--enable_modelarts', type=ast.literal_eval, default=False, help='enable modelarts')
@@ -105,11 +105,11 @@ def get_args_test():
     parser.add_argument('--ms_mode', type=str, default='graph', help='train mode, graph/pynative')
     parser.add_argument('--is_distributed', type=ast.literal_eval, default=False, help='Distribute test or not')
     parser.add_argument('--device_target', type=str, default='GPU', help='device target, Ascend/GPU/CPU')
-    parser.add_argument('--weights', type=str, default='/EMA_yolov5s_300.ckpt',
+    parser.add_argument('--weights', type=str, default='runs/train/exp85/weights/yolov5s_2.ckpt',
                         help='model.ckpt path(s)')
     parser.add_argument('--rect', type=ast.literal_eval, default=False, help='rectangular training')
     parser.add_argument('--data', type=str, default='./config/data/coco.yaml', help='*.data path')
-    parser.add_argument('--cfg', type=str, default='./config/network/yolov5s.yaml', help='model.yaml path')
+    parser.add_argument('--cfg', type=str, default='./config/network_yolov5/yolov5s.yaml', help='model.yaml path')
     parser.add_argument('--hyp', type=str, default='config/data/hyp.scratch-low.yaml', help='hyperparameters path')
     parser.add_argument('--batch_size', type=int, default=32, help='size of each image batch')
     parser.add_argument('--img_size', type=int, default=640, help='inference size (pixels)')
@@ -122,14 +122,15 @@ def get_args_test():
     parser.add_argument('--save_txt', action='store_true', help='save results to *.txt')
     parser.add_argument('--save_hybrid', action='store_true', help='save label+prediction hybrid results to *.txt')
     parser.add_argument('--save_conf', action='store_true', help='save confidences in --save-txt labels')
-    parser.add_argument('--save_json', type=ast.literal_eval, default=True,
-                        help='save a cocoapi-compatible JSON results file')
+    parser.add_argument('--save_json', action='store_true', help='save a cocoapi-compatible JSON results file')
     parser.add_argument('--project', default='./run_test', help='save to project/name')
-    parser.add_argument('--exist_ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--exist_ok', type=ast.literal_eval, default=False,
+                        help='existing project/name ok, do not increment')
     parser.add_argument('--no_trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5_metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--transfer_format', type=ast.literal_eval, default=True,
-                        help='whether transform data format to coco')
+                        help='whether transfer data format to coco')
+    parser.add_argument('--yolo_metric', type=ast.literal_eval, default=False, help='Whether use yolov5 map metric')
     opt = parser.parse_args()
     return opt
 
@@ -138,7 +139,7 @@ def get_args_export():
     parser = argparse.ArgumentParser(prog='export.py')
     parser.add_argument('--ms_mode', type=str, default='graph', help='train mode, graph/pynative')
     parser.add_argument('--device_target', type=str, default='GPU', help='device target, Ascend/GPU/CPU')
-    parser.add_argument('--weights', type=str, default='./EMA_yolov5s_300.ckpt',
+    parser.add_argument('--weights', type=str, default='runs/train/exp42/weights/yolov5s_3.ckpt',
                         help='model.ckpt path')
     parser.add_argument('--data', type=str, default='./config/data/coco.yaml', help='*.data path')
     parser.add_argument('--cfg', type=str, default='config/network_yolov5/yolov5s.yaml', help='model.yaml path')

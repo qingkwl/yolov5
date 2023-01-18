@@ -3,7 +3,6 @@ import mindspore as ms
 from mindspore.train.serialization import save_checkpoint
 from mindspore import Tensor
 
-
 def fuse_checkpoint(opt):
     new_par_dict = {}
     for i in range(opt.start, opt.start + opt.num):
@@ -23,11 +22,10 @@ def fuse_checkpoint(opt):
     ms_ckpt = f"{opt.base_name}_fuse_{opt.start}to{opt.start + opt.num - 1}.ckpt"
     save_checkpoint(new_params_list, ms_ckpt)
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='checkpoint_fuse.py')
     parser.add_argument('--num', type=int, default=10, help='fuse checkpoint num')
     parser.add_argument('--start', type=int, default=291, help='Distribute train or not')
-    parser.add_argument('--base_name', type=str, default='./yolov5', help='source checkpoint file base')
+    parser.add_argument('--base_name', type=str, default='./yolov7', help='source checkpoint file base')
     opt = parser.parse_args()
     fuse_checkpoint(opt)

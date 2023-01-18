@@ -158,6 +158,10 @@ class YoloMomentum(nn.Optimizer):
             self.momentum = Parameter(Tensor(momentum, mstype.float32), name="momentum")
             self.list_moment = False
         elif isinstance(momentum, (list, tuple)):
+            # momentums = [Parameter(Tensor(moment, mstype.float32), name=f"momentum_{i}")
+            #              for i, moment in enumerate(momentum)]
+            # self.momentum = ParameterTuple(tuple(momentums))
+            # momentums = [Tensor(moment, mstype.float32) for i, moment in enumerate(momentum)]
             self.momentum = Parameter(np.array(momentum).astype(np.float32), name="momentum")
             self.list_moment = True
         self.params = self._parameters

@@ -372,8 +372,8 @@ class ComputeLoss(nn.Cell):
         bs = p[0].shape[0]  # batch size
 
         loss = lbox + lobj + lcls
-        loss_item = ops.stop_gradient(ops.stack((lbox, lobj, lcls, loss)))
-        return loss * bs, loss_item
+
+        return loss * bs, ops.identity(ops.stack((lbox, lobj, lcls, loss)))
 
     def build_targets(self, p, targets):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)

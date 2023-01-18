@@ -1,14 +1,15 @@
-import io
 import glob
 import os
+import io
+import sys
 import time
 import json
 import yaml
-import codecs
 import numpy as np
 from pathlib import Path
 from threading import Thread
 from contextlib import redirect_stdout
+
 from pycocotools.coco import COCO
 try:
     from third_party.fast_coco.fast_coco_eval_api import Fast_COCOeval as COCOeval
@@ -25,7 +26,7 @@ from mindspore.communication.management import init, get_rank, get_group_size
 from src.network.yolo import Model
 from config.args import get_args_test
 from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
-    colorstr, box_iou, Synchronize
+    colorstr, box_iou, Synchronize, increment_path
 from src.dataset import create_dataloader
 from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
 from src.plots import plot_study_txt, plot_images, output_to_target
@@ -121,7 +122,6 @@ def compute_metrics(plots, save_dir, names, nc, seen, stats, verbose, training):
     print(map_str, flush=True)
     return map_str
 
-
 def coco_eval(anno_json, pred_json, dataset, is_coco):
     anno = COCO(anno_json)  # init annotations api
     pred = anno.loadRes(pred_json)  # init predictions api
@@ -130,9 +130,11 @@ def coco_eval(anno_json, pred_json, dataset, is_coco):
         eval.params.imgIds = [int(Path(x).stem) for x in dataset.img_files]  # image IDs to evaluate
     eval.evaluate()
     eval.accumulate()
-    eval.summarize()
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        eval.summarize()
     map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
-    return map, map50
+    return map, map50, buffer.getvalue()
 
 
 def merge_json(project_dir, prefix):
@@ -185,11 +187,12 @@ def test(data,
     nc = 1 if single_cls else int(data['nc'])  # number of classes
     iouv = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
     niou = np.prod(iouv.shape)
-    synchronize = None
-    if is_distributed:
-        synchronize = Synchronize(rank_size)
+    synchronize = Synchronize(rank_size) if is_distributed else None
+    # project_dir = increment_path(opt.project, exist_ok=opt.exist_ok)
     project_dir = os.path.join(opt.project, f"epoch_{cur_epoch}")
+    # project_dir = increment_path(project_dir, exist_ok=opt.exist_ok)
     save_dir = os.path.join(project_dir, f"save_dir_{rank}")
+    save_dir = increment_path(save_dir, exist_ok=opt.exist_ok)
     os.makedirs(os.path.join(save_dir, f"labels_{rank}"), exist_ok=False)
     # Initialize/load model and set device
     training = model is not None
@@ -242,8 +245,8 @@ def test(data,
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
     names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
-
-    class_map = coco80_to_coco91_class() if is_coco else list(range(1000))
+    start_id = 1
+    class_map = coco80_to_coco91_class() if is_coco else list(range(start_id, 1000 + start_id))
     p, r, f1, mp, mr, map50, map, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
     loss = np.zeros(3)
     jdict, stats, ap, ap_class = [], [], [], []
@@ -252,13 +255,10 @@ def test(data,
     for batch_i, meta_data in enumerate(data_loader):
         img, targets, paths, shapes = meta_data["img"], meta_data["label_out"], \
                                       meta_data["img_files"], meta_data["shapes"]
+        dtype = ms.float16 if half_precision else ms.float32
         img = img.astype(np.float32) / 255.0  # 0 - 255 to 0.0 - 1.0
-        img_tensor = Tensor.from_numpy(img)
-        targets_tensor = Tensor.from_numpy(targets)
-        if half_precision:
-            img_tensor = ops.cast(img_tensor, ms.float16)
-            targets_tensor = ops.cast(targets_tensor, ms.float16)
-
+        img_tensor = Tensor(img, dtype)
+        targets_tensor = Tensor(targets, dtype)
         targets = targets.reshape((-1, 6))
         targets = targets[targets[:, 1] >= 0]
         nb, _, height, width = img.shape  # batch size, channels, height, width
@@ -291,11 +291,8 @@ def test(data,
         t = time.time()
         for si, pred in enumerate(out):
             labels = targets[targets[:, 0] == si, 1:]
-            nl, npr, shape = labels.shape[0], pred.shape[0], shapes[si][0]  # number of labels, predictions
-            if type(paths[si]) is np.ndarray or type(paths[si]) is np.bytes_:
-                path = Path(str(codecs.decode(paths[si].tostring()).strip(b'\x00'.decode())))
-            else:
-                path = Path(paths[si])
+            nl, npr = labels.shape[0], pred.shape[0]  # number of labels, predictions
+            path, shape = Path(paths[si]), shapes[si][0]
             correct = np.zeros((npr, niou)).astype(np.bool_)  # init
             seen += 1
 
@@ -342,8 +339,9 @@ def test(data,
               f"NMS time: [{nms_time * 1e3:.2f}]ms  "
               f"Metric time: [{metric_time * 1e3:.2f}]ms", flush=True)
         s_time = time.time()
-
-    # compute_metrics(plots, save_dir, names, nc, seen, verbose, training)
+    map_str = None
+    if opt.yolo_metric:
+        map_str = compute_metrics(plots, save_dir, names, nc, seen, stats, verbose, training)
 
     # Print speeds
     total = tuple(x for x in (t0, t1, t2, t0 + t1 + t2)) + (imgsz, imgsz, batch_size)  # tuple
@@ -352,12 +350,12 @@ def test(data,
     # print('Speed: %.1f/%.1f/%.1f ms inference/NMS/total per %gx%g image at batch-size %g' % t)
     print('Speed: %.1f/%.1f/%.1f/%.1f ms inference/NMS/Metric/total per %gx%g image at batch-size %g' % t)
     print('Total time: %.1f/%.1f/%.1f/%.1f s inference/NMS/Metric/total %gx%g image at batch-size %g' % total)
-    # print(f"Total seen: [{seen}]", flush=True)
     # Plots
     if plots:
         confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
 
     # Save JSON
+    map_table_str = ''
     if save_json and len(jdict):
         w = Path(weights).stem if weights is not None else ''  # weights
         data_dir = Path(data["val"]).parent
@@ -385,7 +383,8 @@ def test(data,
         try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
             if rank == 0:
                 print("[INFO] Start evaluating mAP...", flush=True)
-                map, map50 = coco_eval(anno_json, pred_json, dataset, is_coco)
+                map, map50, map_table_str = coco_eval(anno_json, pred_json, dataset, is_coco)
+                print(map_table_str, flush=True)
                 print("[INFO] Finish evaluating mAP.", flush=True)
                 if os.path.exists(sync_tmp_file):
                     print(f"[INFO] Delete sync temp file at path {sync_tmp_file}", flush=True)
@@ -408,7 +407,7 @@ def test(data,
         maps[c] = ap[i]
 
     model.set_train()
-    return (mp, mr, map50, map, *(loss / per_epoch_size).tolist()), maps, t
+    return (mp, mr, map50, map, *(loss / per_epoch_size).tolist()), maps, t, map_table_str, map_str
 
 
 if __name__ == '__main__':
@@ -466,14 +465,14 @@ if __name__ == '__main__':
              save_json=False, plots=False, half_precision=False, v5_metric=opt.v5_metric)
 
     elif opt.task == 'study':  # run over a range of settings and save/plot
-        # python test.py --task study --data coco.yaml --iou 0.65 --weights yolov5.ckpt
+        # python test.py --task study --data coco.yaml --iou 0.65 --weights yolov7.ckpt
         x = list(range(256, 1536 + 128, 128))  # x axis (image sizes)
         f = f'study_{Path(opt.data).stem}_{Path(opt.weights).stem}.txt'  # filename to save to
         y = []  # y axis
         for i in x:  # img-size
             print(f'\nRunning {f} point {i}...')
-            r, _, t = test(opt.data, opt.weights, opt.batch_size, i, opt.conf_thres, opt.iou_thres, opt.save_json,
-                           plots=False, half_precision=False, v5_metric=opt.v5_metric)
+            r, _, t, _, _ = test(opt.data, opt.weights, opt.batch_size, i, opt.conf_thres, opt.iou_thres, opt.save_json,
+                                 plots=False, half_precision=False, v5_metric=opt.v5_metric)
             y.append(r + t)  # results and times
         np.savetxt(f, y, fmt='%10.4g')  # save
         os.system('zip -r study.zip study_*.txt')
