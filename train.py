@@ -132,7 +132,7 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None, 
     print(f"[INFO] rank_size: {rank_size}", flush=True)
     net_with_loss = NetworkWithLoss(model, compute_loss, rank_size)
     train_step = build_train_network(network=net_with_loss, ema=ema, optimizer=optimizer, level='O0',
-                                     boost_level='O1', amp_loss_scaler=loss_scaler, sens=sens)
+                                     boost_level='O0', amp_loss_scaler=loss_scaler, sens=sens)
     return train_step
 
 
