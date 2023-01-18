@@ -5,10 +5,11 @@ import time
 import json
 import yaml
 import codecs
-import numpy as np
 from pathlib import Path
 from threading import Thread
 from contextlib import redirect_stdout
+
+import numpy as np
 from pycocotools.coco import COCO
 try:
     from third_party.fast_coco.fast_coco_eval_api import Fast_COCOeval as COCOeval
@@ -25,7 +26,7 @@ from mindspore.communication.management import init, get_rank, get_group_size
 from src.network.yolo import Model
 from config.args import get_args_test
 from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
-    colorstr, box_iou, MasterWrapper
+    colorstr, box_iou, MasterWrapper, increment_path
 from src.dataset import create_dataloader
 from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
 from src.plots import plot_study_txt, plot_images, output_to_target
@@ -187,9 +188,10 @@ def test(data,
     niou = np.prod(iouv.shape)
     project_dir = os.path.join(opt.project, f"epoch_{cur_epoch}")
     save_dir = os.path.join(project_dir, f"save_dir_{rank}")
-    os.makedirs(os.path.join(save_dir, f"labels_{rank}"), exist_ok=False)
+    save_dir = increment_path(save_dir, exist_ok=opt.exist_ok)
+    os.makedirs(os.path.join(save_dir, f"labels_{rank}"), exist_ok=opt.exist_ok)
     # Initialize/load model and set device
-    training = model is not None
+    is_training = model is not None
     if model is None:  # called by train.py
         # Load model
         # Hyperparameters
@@ -213,7 +215,7 @@ def test(data,
 
     # Dataloader
     if dataloader is None or dataset is None:
-        print("enable rect", rect, flush=True)
+        print("[INFO] enable rect", rect, flush=True)
         batch_size = 1 if rect else batch_size
         task = opt.task if opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
         dataloader, dataset, per_epoch_size = create_dataloader(data[task], imgsz, batch_size, gs, opt,
@@ -240,12 +242,12 @@ def test(data,
     confusion_matrix = ConfusionMatrix(nc=nc)
     names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
 
-    class_map = coco80_to_coco91_class() if is_coco else list(range(1000))
-    p, r, f1, mp, mr, map50, map, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
+    start_idx = 1
+    class_map = coco80_to_coco91_class() if is_coco else list(range(start_idx, 1000 + start_idx))
+    p, r, f1, mp, mr, map50, map, t0, t1, t2 = 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.
     loss = np.zeros(3)
     jdict, stats, ap, ap_class = [], [], [], []
     s_time = time.time()
-    t2 = 0.
     for batch_i, meta_data in enumerate(data_loader):
         img, targets, paths, shapes = meta_data["img"], meta_data["label_out"], \
                                       meta_data["img_files"], meta_data["shapes"]
@@ -263,7 +265,6 @@ def test(data,
         # Run model
         t = time.time()
         pred_out, train_out = model(img_tensor, augment=augment)  # inference and training outputs
-
         infer_time = time.time() - t
         t0 += infer_time
 
@@ -333,23 +334,21 @@ def test(data,
             f = os.path.join(save_dir, f'test_batch{batch_i}_pred.jpg')  # predictions
             Thread(target=plot_images, args=(img, output_to_target(out), paths, f, names), daemon=True).start()
 
-        # print(f"Test step: {batch_i + 1}/{per_epoch_size}: cost time {time.time() - s_time:.2f}s", flush=True)
         print(f"Test step: {batch_i + 1}/{per_epoch_size}: cost time [{(time.time() - s_time) * 1e3:.2f}]ms "
               f"Data time: [{data_time * 1e3:.2f}]ms  Infer time: [{infer_time * 1e3:.2f}]ms  "
               f"NMS time: [{nms_time * 1e3:.2f}]ms  "
               f"Metric time: [{metric_time * 1e3:.2f}]ms", flush=True)
         s_time = time.time()
 
-    # compute_metrics(plots, save_dir, names, nc, seen, verbose, training)
+    # compute_metrics(plots, save_dir, names, nc, seen, stats, verbose, training)
 
     # Print speeds
-    total = tuple(x for x in (t0, t1, t2, t0 + t1 + t2)) + (imgsz, imgsz, batch_size)  # tuple
-    t = tuple(x / seen * 1E3 for x in (t0, t1, t2, t0 + t1 + t2)) + (imgsz, imgsz, batch_size)  # tuple
+    total_time = (t0, t1, t2, t0 + t1 + t2, imgsz, imgsz, batch_size) # tuple
+    t = tuple(x / seen * 1E3 for x in total_time[:4]) + (imgsz, imgsz, batch_size)  # tuple
     # if not training:
-    # print('Speed: %.1f/%.1f/%.1f ms inference/NMS/total per %gx%g image at batch-size %g' % t)
     print('Speed: %.1f/%.1f/%.1f/%.1f ms inference/NMS/Metric/total per %gx%g image at batch-size %g' % t)
-    print('Total time: %.1f/%.1f/%.1f/%.1f s inference/NMS/Metric/total %gx%g image at batch-size %g' % total)
-    # print(f"Total seen: [{seen}]", flush=True)
+    print('Total time: %.1f/%.1f/%.1f/%.1f s inference/NMS/Metric/total %gx%g image at batch-size %g' % total_time)
+
     # Plots
     if plots:
         confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
@@ -389,7 +388,7 @@ def test(data,
             print(f'pycocotools unable to run: {e}')
 
     # Return results
-    if not training:
+    if not is_training:
         s = f"\n{len(glob.glob(os.path.join(save_dir, 'labels/*.txt')))} labels saved to " \
             f"{os.path.join(save_dir, 'labels')}" if save_txt else ''
         print(f"Results saved to {save_dir}, {s}")

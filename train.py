@@ -2,12 +2,10 @@ import copy
 from collections import deque
 
 import yaml
-import math
 import os
 import random
 import time
 import numpy as np
-import albumentations as A
 from pathlib import Path
 import mindspore as ms
 import mindspore.nn as nn
@@ -352,36 +350,36 @@ def train(hyp, opt):
             ms.load_param_into_net(infer_model, param_dict)
             del param_dict
             infer_model.set_train(False)
-            info, maps, t = test(opt.data,
-                                 opt.weights,
-                                 opt.batch_size,
-                                 opt.img_size,
-                                 opt.conf_thres,
-                                 opt.iou_thres,
-                                 opt.save_json,
-                                 opt.single_cls,
-                                 opt.augment,
-                                 opt.verbose,
-                                 model=infer_model,
-                                 dataloader=val_dataloader,
-                                 dataset=val_dataset,
-                                 save_txt=opt.save_txt | opt.save_hybrid,
-                                 save_hybrid=opt.save_hybrid,
-                                 save_conf=opt.save_conf,
-                                 trace=not opt.no_trace,
-                                 plots=False,
-                                 half_precision=False,
-                                 v5_metric=opt.v5_metric,
-                                 is_distributed=opt.is_distributed,
-                                 rank=opt.rank,
-                                 rank_size=opt.rank_size,
-                                 opt=opt,
-                                 cur_epoch=cur_epoch)
+            info, _, _ = test(opt.data,
+                              opt.weights,
+                              opt.batch_size,
+                              opt.img_size,
+                              opt.conf_thres,
+                              opt.iou_thres,
+                              opt.save_json,
+                              opt.single_cls,
+                              opt.augment,
+                              opt.verbose,
+                              model=infer_model,
+                              dataloader=val_dataloader,
+                              dataset=val_dataset,
+                              save_txt=opt.save_txt | opt.save_hybrid,
+                              save_hybrid=opt.save_hybrid,
+                              save_conf=opt.save_conf,
+                              trace=not opt.no_trace,
+                              plots=False,
+                              half_precision=False,
+                              v5_metric=opt.v5_metric,
+                              is_distributed=opt.is_distributed,
+                              rank=opt.rank,
+                              rank_size=opt.rank_size,
+                              opt=opt,
+                              cur_epoch=cur_epoch)
 
             infer_model.set_train(True)
-
-            if (rank % 8 == 0) and (info[3] > best_map):
-                best_map = info[3]
+            mean_ap = info[3]
+            if (rank % 8 == 0) and (mean_ap > best_map):
+                best_map = mean_ap
                 print(f"[INFO] Best result: Best mAP [{best_map}] at epoch [{cur_epoch}]", flush=True)
                 # save best checkpoint
                 model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
