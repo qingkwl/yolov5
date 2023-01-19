@@ -18,7 +18,7 @@ def get_args_train():
     parser.add_argument('--profiler', type=ast.literal_eval, default=False, help='enable profiler')
     parser.add_argument('--ema', type=ast.literal_eval, default=True, help='ema')
     parser.add_argument('--is_distributed', type=ast.literal_eval, default=False, help='Distribute train or not')
-    parser.add_argument('--device_target', type=str, default='GPU', help='device target, Ascend/GPU/CPU')
+    parser.add_argument('--device_target', type=str, default='Ascend', help='device target, Ascend/GPU/CPU')
     parser.add_argument('--recompute', type=ast.literal_eval, default=False, help='Recompute')
     parser.add_argument('--recompute_layers', type=int, default=0)
     parser.add_argument('--weights', type=str, default='', help='initial weights path')
@@ -104,7 +104,7 @@ def get_args_test():
     parser = argparse.ArgumentParser(prog='test.py')
     parser.add_argument('--ms_mode', type=str, default='graph', help='train mode, graph/pynative')
     parser.add_argument('--is_distributed', type=ast.literal_eval, default=False, help='Distribute test or not')
-    parser.add_argument('--device_target', type=str, default='GPU', help='device target, Ascend/GPU/CPU')
+    parser.add_argument('--device_target', type=str, default='Ascend', help='device target, Ascend/GPU/CPU')
     parser.add_argument('--weights', type=str, default='/EMA_yolov5s_300.ckpt',
                         help='model.ckpt path(s)')
     parser.add_argument('--rect', type=ast.literal_eval, default=False, help='rectangular training')
@@ -137,11 +137,11 @@ def get_args_test():
 def get_args_export():
     parser = argparse.ArgumentParser(prog='export.py')
     parser.add_argument('--ms_mode', type=str, default='graph', help='train mode, graph/pynative')
-    parser.add_argument('--device_target', type=str, default='GPU', help='device target, Ascend/GPU/CPU')
+    parser.add_argument('--device_target', type=str, default='Ascend', help='device target, Ascend/GPU/CPU')
     parser.add_argument('--weights', type=str, default='./EMA_yolov5s_300.ckpt',
                         help='model.ckpt path')
     parser.add_argument('--data', type=str, default='./config/data/coco.yaml', help='*.data path')
-    parser.add_argument('--cfg', type=str, default='config/network_yolov5/yolov5s.yaml', help='model.yaml path')
+    parser.add_argument('--cfg', type=str, default='config/network/yolov5s.yaml', help='model.yaml path')
     parser.add_argument('--hyp', type=str, default='config/data/hyp.scratch-low.yaml', help='hyperparameters path')
     parser.add_argument('--export_batch_size', type=int, default=1, help='size of each image batch')
     parser.add_argument('--img_size', type=int, default=640, help='inference size (pixels)')
