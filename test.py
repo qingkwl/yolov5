@@ -29,7 +29,7 @@ from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy
 from src.dataset import create_dataloader
 from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
 from src.plots import plot_study_txt, plot_images, output_to_target
-from third_party.yolo2coco.yolo2coco import YOLO2COCO
+from third_party.yolo2coco.yolo2coco import yolo2coco
 
 
 def save_one_json(predn, jdict, path, class_map):
@@ -40,7 +40,7 @@ def save_one_json(predn, jdict, path, class_map):
     for p, b in zip(predn.tolist(), box.tolist()):
         jdict.append({
             'image_id': image_id,
-            'category_id': class_map[int(p[5])],
+            'category_id': class_map[int(p[5])] + 1, # index begin with 1
             'bbox': [round(x, 3) for x in b],
             'score': round(p[4], 5)})
 
@@ -364,10 +364,7 @@ def test(data,
         anno_json = os.path.join(data_dir, "annotations/instances_val2017.json")
         if opt.transfer_format and not os.path.exists(anno_json): # data format transfer if annotations does not exists
             print("[INFO] Transfer annotations from yolo to coco format.")
-            transformer = YOLO2COCO(data_dir, output_dir=data_dir,
-                                    class_names=data["names"], class_map=class_map,
-                                    mode='val', annotation_only=True)
-            transformer()
+            yolo2coco(data['test'], data['names'], anno_json)
         pred_json = os.path.join(save_dir, f"{w}_predictions_{rank}.json")  # predictions json
         print('\nEvaluating pycocotools mAP... saving %s...' % pred_json)
         with open(pred_json, 'w') as f:
