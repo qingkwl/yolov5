@@ -131,9 +131,11 @@ def coco_eval(anno_json, pred_json, dataset, is_coco):
         eval.params.imgIds = [int(Path(x).stem) for x in dataset.img_files]  # image IDs to evaluate
     eval.evaluate()
     eval.accumulate()
-    eval.summarize()
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        eval.summarize()
     map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
-    return map, map50
+    return map, map50, buffer.getvalue()
 
 
 def merge_json(project_dir, prefix):
@@ -245,6 +247,7 @@ def test(data,
     start_idx = 1
     class_map = coco80_to_coco91_class() if is_coco else list(range(start_idx, 1000 + start_idx))
     p, r, f1, mp, mr, map50, map, t0, t1, t2 = 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.
+    map_table_str = ''
     loss = np.zeros(3)
     jdict, stats, ap, ap_class = [], [], [], []
     s_time = time.time()
@@ -373,9 +376,9 @@ def test(data,
             if is_distributed:
                 merged_json, merged_results = merge_json(project_dir, prefix=w)
                 # COCO api support annotation list as argument which can avoid read json file again
-                map, map50 = coco_eval(anno_json, merged_results, dataset, is_coco)
+                map, map50, map_table_str = coco_eval(anno_json, merged_results, dataset, is_coco)
             else:
-                map, map50 = coco_eval(anno_json, pred_json, dataset, is_coco)
+                map, map50, map_table_str = coco_eval(anno_json, pred_json, dataset, is_coco)
             return map, map50
 
         sync_file = os.path.join(project_dir, 'sync_file.tmp')
@@ -383,7 +386,7 @@ def test(data,
         try:
             compute_map()
             if rank % 8 == 0:
-                map, map50 = compute_map.get_result()
+                map, map50, map_table_str = compute_map.get_result()
         except Exception as e:
             print(f'pycocotools unable to run: {e}')
 
@@ -397,7 +400,7 @@ def test(data,
         maps[c] = ap[i]
 
     model.set_train()
-    return (mp, mr, map50, map, *(loss / per_epoch_size).tolist()), maps, t
+    return (mp, mr, map50, map, *(loss / per_epoch_size).tolist(), map_table_str), maps, t
 
 
 if __name__ == '__main__':

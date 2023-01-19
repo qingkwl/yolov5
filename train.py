@@ -134,6 +134,51 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None, 
     return train_step
 
 
+def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
+    print("[INFO] Evaluating...", flush=True)
+    param_dict = {}
+    if opt.ema:
+        print("[INFO] ema parameter update", flush=True)
+        for p in ema.ema_weights:
+            name = p.name[len("ema."):]
+            param_dict[name] = p.data
+    else:
+        for p in model.get_parameters():
+            name = p.name
+            param_dict[name] = p.data
+
+    ms.load_param_into_net(infer_model, param_dict)
+    del param_dict
+    infer_model.set_train(False)
+    info, _, _ = test(opt.data,
+                      opt.weights,
+                      opt.batch_size,
+                      opt.img_size,
+                      opt.conf_thres,
+                      opt.iou_thres,
+                      opt.save_json,
+                      opt.single_cls,
+                      opt.augment,
+                      opt.verbose,
+                      model=infer_model,
+                      dataloader=val_dataloader,
+                      dataset=val_dataset,
+                      save_txt=opt.save_txt | opt.save_hybrid,
+                      save_hybrid=opt.save_hybrid,
+                      save_conf=opt.save_conf,
+                      trace=not opt.no_trace,
+                      plots=False,
+                      half_precision=False,
+                      v5_metric=opt.v5_metric,
+                      is_distributed=opt.is_distributed,
+                      rank=opt.rank,
+                      rank_size=opt.rank_size,
+                      opt=opt,
+                      cur_epoch=cur_epoch)
+    infer_model.set_train(True)
+    return info
+
+
 def train(hyp, opt):
     set_seed()
     if opt.enable_modelarts:
@@ -301,8 +346,10 @@ def train(hyp, opt):
 
         if opt.profiler and (cur_epoch == run_profiler_epoch):
             break
+        eval_results = None
         if opt.save_checkpoint and (rank % 8 == 0) and (cur_epoch >= opt.start_save_epoch) \
                 and (cur_epoch % opt.save_interval == 0):
+            eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
             # Save Checkpoint
             model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
             ckpt_path = os.path.join(wdir, f"{model_name}_{cur_epoch}.ckpt")
@@ -328,6 +375,10 @@ def train(hyp, opt):
                 sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
                 if ema:
                     sync_data(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
+            map_str_path = os.path.join(wdir, f"{model_name}_{cur_epoch}_map.txt")
+            coco_map_table_str = eval_results[-1]
+            with open(map_str_path, 'w') as file:
+                file.write(f"COCO API:\n{coco_map_table_str}\n")
 
         # Evaluation
         def is_eval_epoch():
@@ -335,49 +386,11 @@ def train(hyp, opt):
                    ((cur_epoch >= opt.eval_start_epoch) and (cur_epoch % opt.eval_epoch_interval) == 0)
 
         if opt.run_eval and is_eval_epoch():
-            print("[INFO] Evaluating...", flush=True)
-            param_dict = {}
-            if opt.ema:
-                print("[INFO] ema parameter update", flush=True)
-                for p in ema.ema_weights:
-                    name = p.name[len("ema."):]
-                    param_dict[name] = p.data
+            if eval_results is None:
+                eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
             else:
-                for p in model.get_parameters():
-                    name = p.name
-                    param_dict[name] = p.data
-
-            ms.load_param_into_net(infer_model, param_dict)
-            del param_dict
-            infer_model.set_train(False)
-            info, _, _ = test(opt.data,
-                              opt.weights,
-                              opt.batch_size,
-                              opt.img_size,
-                              opt.conf_thres,
-                              opt.iou_thres,
-                              opt.save_json,
-                              opt.single_cls,
-                              opt.augment,
-                              opt.verbose,
-                              model=infer_model,
-                              dataloader=val_dataloader,
-                              dataset=val_dataset,
-                              save_txt=opt.save_txt | opt.save_hybrid,
-                              save_hybrid=opt.save_hybrid,
-                              save_conf=opt.save_conf,
-                              trace=not opt.no_trace,
-                              plots=False,
-                              half_precision=False,
-                              v5_metric=opt.v5_metric,
-                              is_distributed=opt.is_distributed,
-                              rank=opt.rank,
-                              rank_size=opt.rank_size,
-                              opt=opt,
-                              cur_epoch=cur_epoch)
-
-            infer_model.set_train(True)
-            mean_ap = info[3]
+                print(f"[INFO] Evaluation has run at this epoch. Skip evaluation.", flush=True)
+            mean_ap = eval_results[3]
             if (rank % 8 == 0) and (mean_ap > best_map):
                 best_map = mean_ap
                 print(f"[INFO] Best result: Best mAP [{best_map}] at epoch [{cur_epoch}]", flush=True)
