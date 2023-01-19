@@ -1,61 +1,54 @@
-# Contents
+# 目录
 
-- [Contents](#contents)
-- [YOLOv5 Description](#YOLOv5-description)
-- [Model Architecture](#model-architecture)
-- [Dataset](#dataset)
-- [Quick Start](#quick-start)
-- [Script Description](#script-description)
-    - [Script and Sample Code](#script-and-sample-code)
-    - [Script Parameters](#script-parameters)
-    - [Training Process](#training-process)
-        - [Training](#training)
-        - [Distributed Training](#distributed-training)
-    - [Evaluation Process](#evaluation-process)
-        - [Evaluation](#evaluation)
-- [Model Description](#model-description)
-- [Performance](#performance)  
-    - [Evaluation Performance](#evaluation-performance)
-    - [Inference Performance](#inference-performance)
-    - [Transfer Learning](#transfer-learning)
-- [Description of Random Situation](#description-of-random-situation)
-- [ModelZoo Homepage](#modelzoo-homepage)
+- [目录](#目录)
+- [YOLOv5说明](#YOLOv5说明)
+- [模型架构](#模型架构)
+- [数据集](#数据集)
+- [快速入门](#快速入门)
+- [脚本说明](#脚本说明)
+    - [脚本和示例代码](#脚本和示例代码)
+    - [脚本参数](#脚本参数)
+    - [训练过程](#训练过程)
+        - [训练](#训练)
+        - [分布式训练](#分布式训练)
+    - [推理过程](#推理过程)
+        - [推理](#推理)
+- [模型说明](#模型说明)
+- [性能](#性能)  
+    - [评估性能](#评估性能)
+    - [推理性能](#推理性能)
 
 
-# [YOLOv5 Description](#contents)
+# [YOLOv5说明](#目录)
 
-Published in April 2020, YOLOv5 achieved state-of-the-art performance on the COCO dataset for object detection. 
-It is an important improvement of YoloV3, the implementation of a new architecture in the **Backbone** and 
-the modifications in the **Neck** have improved the **mAP**(mean Average Precision) by **10%** and 
-the number of **FPS**(Frame per Second) by **12%**.
+
+YOLOv5 于 2020 年 4 月发布，并在 COCO 数据集目标检测任务中取得了 SOTA 成绩。它是对 YOLOv3 的一个重要改进，
+新提出的 **Backbone** 结构以及对于 **Neck** 的改进使得 YOLOv5 在 mAP(mean Average Precision) 上提升了 10%，
+在 FPS(Frame Per Second) 上提升了 12%。
 
 [code](https://github.com/ultralytics/yolov5)
 
 
-# [Model Architecture](#contents)
+# [模型架构](#目录)
 
-The YOLOv5 network is mainly composed of CSP and Focus as a backbone, spatial pyramid pooling(SPP) additional module, 
-PANet path-aggregation neck and YOLOv3 head. [CSP](https://arxiv.org/abs/1911.11929) is a novel backbone 
-that can enhance the learning capability of CNN. 
-The [spatial pyramid pooling](https://arxiv.org/abs/1406.4729) block is added over CSP to increase the receptive field 
-and separate out the most significant context features. 
-Instead of Feature pyramid networks (FPN) for object detection used in YOLOv3, the PANet is used as the method 
-for parameter aggregation for different detector levels. 
-To be more specific, CSPDarknet53 contains 5 CSP modules which use the convolution **C** with kernel size k=3x3, 
-stride s = 2x2; Within the PANet and SPP, 1x1, 5x5, 9x9, 13x13 max poolings are applied.
+YOLOv5 模型以添加了 SPP 模块的 CSP 模块与 Focus 模块作为 Backbone，以 PANet 中的 Path-aggregation 模块作为 Neck，
+并保留了 YOLOv3 的 Head 模块。[CSP](https://arxiv.org/abs/1911.11929) 作为 Backbone 能够有效增强 CNN 的学习能力。
+添加到 CSP 模块中的 [Spatial pyramid pooling](https://arxiv.org/abs/1406.4729) 模块能够增加感受野，分离最显著的上下文特征。
+YOLOv4 使用 PANet 替换了 YOLOv3 中的 Feature Pyramid Networks(FPN) 来检测目标，PANet 能够聚合不同层级检测器的参数。
+
+CSPDarknet53 包含了 5 个 CSP 模块，CSP 模块中使用了 kernel size 为 3x3, stride 为 2x2 的卷积层；
+而在 PANet 和 SPP 中使用了 1x1、5x5、9x9、13x13 的 max pooling 网络层。
 
 
-# [Dataset](#contents)
+# [数据集](#目录)
 
-Dataset used: [COCO2017](<https://cocodataset.org/#download>)
+数据集: [COCO2017](<https://cocodataset.org/#download>)
 
-Note that you can run the scripts with **COCO2017** or any other datasets with the same format as MS COCO Annotation. 
-But we do suggest user to use MS COCO dataset to experience our model.
+您可以使用 **COCO2017** 或者其他具有 COCO 格式的数据集来运行我们提供的脚本。但是我们建议您使用 COCO 数据集来尝试我们的模型。
 
+# [快速入门](#目录)
 
-# [Quick Start](#contents)
-
-After installing MindSpore via the official website, you can start training and evaluation as follows:
+按照官方网站的指导安装 MindSpore 之后，您可以使用以下命令来训练或者推理：
 
 ```bash
 # Run training example(1p) on Ascend/GPU by python command
@@ -82,7 +75,7 @@ python train.py \
 ```
 
 ```bash
-# Run 1p by shell script, please change `device_target` in config file to run on Ascend/GPU, and change `T_max`, `max_epoch`, `warmup_epochs` refer to contents of notes
+# Run 1p by shell script, please change `device_target` in config file to run on Ascend/GPU, and change `T_max`, `max_epoch`, `warmup_epochs` refer to 目录 of notes
 bash run_standalone_train_ascend.sh -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH]
 
 # For Ascend device, distributed training example(8p) by shell script
@@ -92,7 +85,7 @@ bash run_distribute_train_ascend.sh -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH
 bash run_distribute_train_gpu.sh [CONFIG_PATH] [DATA_PATH] [HYP_PATH]
 ```
 
-To see usage information, you could pass `--help` or `-H` to shell script.
+您可以输入 `--help` 或者 `-H` 来查看更多 Shell 脚本的使用方法。
 
 ```bash
 # Run evaluation on Ascend/GPU by python command
@@ -117,12 +110,12 @@ bash run_distribute_test_ascend.sh -w [WEIGHTS_PATH] -r [RANK_TABLE_FILE] -c [CO
 bash run_standalone_test_ascend.sh -w [WEIGHTS_PATH] -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH]
 ```
 
-The corresponding config files are in `config` folder. The `coco.yaml` in `config/data` folder is about dataset configs. 
-The `hyp.scratch-low.yaml` are hyperparameters settings. The `yolov5s.yaml` saves model architecture configs.
+脚本运行相关的配置文件存放在 `config` 文件夹中。`config/data` 路径下的 `coco.yaml` 保存了数据集相关的配置，
+`hyp.scratch-low.yaml` 保存了模型超参数的配置。`yolov5s.yaml` 存放了模型结构的配置。
 
-# [Script Description](#contents)
+# [脚本说明](#目录)
 
-## [Script and Sample Code](#contents)
+## [脚本和示例代码](#目录)
 
 ```text
 yolov5
@@ -195,7 +188,7 @@ yolov5
 ```
 
 
-## [Script Parameters](#contents)
+## [脚本参数](#目录)
 
 ```text
 Major parameters in train.py are:
@@ -224,11 +217,11 @@ optional arguments:
 ```
 
 
-## [Training Process](#contents)
+## [训练过程](#目录)
 
 ### Training
 
-For Ascend device, standalone training can be started like this:
+对于 Ascend 设备，可以使用以下命令进行单卡训练：
 
 ```shell
 # Run training example(1p) on Ascend/GPU by python command
@@ -254,11 +247,9 @@ python train.py \
     --batch_size=32  > log.txt 2>&1 &
 ```
 
-You should fine tune the parameters when run training for custom dataset.
+对于自定义数据集，您可能需要微调模型的超参数。以上 `Python` 命令会在后台运行。
 
-The python command above will run in the background.
-
-### Distributed Training
+### 分布式训练
 
 Distributed training example(8p) by shell script:
 
@@ -271,11 +262,11 @@ bash run_distribute_train_gpu.sh [CONFIG_PATH] [DATA_PATH] [HYP_PATH]
 ```
 
 
-## [Evaluation Process](#contents)
+## [推理过程](#目录)
 
-### Evaluation
+### 推理
 
-Before running the command below, please check the checkpoint path used for evaluation.
+在运行以下命令之前，请检查用于推理的 Checkpoint 文件是否存在，名称是否正确。
 
 ```shell
 # Run evaluation by python command
@@ -298,16 +289,17 @@ bash run_distribute_test_ascend.sh -w [WEIGHTS_PATH] -r [RANK_TABLE_FILE] -c [CO
 bash run_standalone_test_ascend.sh -w [WEIGHTS_PATH] -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH]
 ```
 
-The above python command will run in the background. You can view the results through the file "log.txt".
+以上 `Python` 命令会在后台运行。您可以通过 `log.txt` 文件查看输出信息。
 
-# [Model Description](#contents)
 
-## [Performance](#contents)
+# [模型说明](#目录)
 
-### Evaluation Performance
+## [性能](#目录)
+
+### 评估性能
 
 TO BE DONE.
 
-### Inference Performance
+### 推理性能
 
 TO BE DONE.
