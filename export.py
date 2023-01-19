@@ -22,7 +22,7 @@ import numpy as np
 import mindspore as ms
 from mindspore import Tensor, export, context
 
-from config.args import get_args_test
+from config.args import get_args_export
 from src.network.yolo import Model
 
 
@@ -60,5 +60,5 @@ def run_export(opt):
 
 
 if __name__ == '__main__':
-    opt = get_args_test()
+    opt = get_args_export()
     run_export(opt)
