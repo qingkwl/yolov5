@@ -213,6 +213,7 @@ class Detect(nn.Cell):
         self.end2end = False
         self.include_nms = False
         self.concat = False
+        self.is_export = False
 
         self.nc = nc  # number of classes
         self.no = nc + 5  # number of outputs per anchor
@@ -238,6 +239,9 @@ class Detect(nn.Cell):
         outs = ()
         for i in range(self.nl):
             out = self.m[i](x[i])  # conv
+            if self.is_export:
+                outs += (out,)
+                continue
             bs, _, ny, nx = out.shape  # (bs,255,20,20)
             out = ops.Transpose()(out.view(bs, self.na, self.no, ny, nx), (0, 1, 3, 4, 2))  # (bs,3,20,20,85)
             out = out
@@ -258,7 +262,7 @@ class Detect(nn.Cell):
                 z += (y.view(bs, -1, self.no),)
 
         # return outs
-        return outs if self.training else (ops.concat(z, 1), outs)
+        return outs if self.training or self.is_export else (ops.concat(z, 1), outs)
 
     def fuseforward(self, x):
         # x = x.copy()  # for profiling

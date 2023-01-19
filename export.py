@@ -51,6 +51,10 @@ def run_export(opt):
     param_dict = ms.load_checkpoint(opt.weights)
     ms.load_param_into_net(net, param_dict)
     print(f"load ckpt from \"{opt.weights}\" success.")
+    for i in range(len(net.model)):
+        name = net.model[i].cls_name
+        if name.lower() == "detect":
+            net.model[i].is_export = True
     net.set_train(False)
 
     # export
