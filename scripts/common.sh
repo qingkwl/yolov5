@@ -118,7 +118,7 @@ function parse_args() {
                 [ "$option" = "D" ] && shift;;
             n | number)
                 check_empty "$option" "$value"; check_number "$option" "$value"; DEVICE_NUM=$value;
-                [ "$option" = "D" ] && shift;;
+                [ "$option" = "n" ] && shift;;
             *)  echo "Unknown option: $1. Please see usage:"; usage; exit 1;;
         esac
         shift
