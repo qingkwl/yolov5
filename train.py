@@ -179,6 +179,26 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
     return info
 
 
+def save_ema(ema, ema_ckpt_path, append_dict=None):
+    params_list = []
+    for p in ema.ema_weights:
+        _param_dict = {'name': p.name[len("ema."):], 'data': Tensor(p.data.asnumpy())}
+        params_list.append(_param_dict)
+    ms.save_checkpoint(params_list, ema_ckpt_path, append_dict=append_dict)
+
+
+class CheckpointQueue:
+    def __init__(self, max_ckpt_num):
+        self.max_ckpt_num = max_ckpt_num
+        self.ckpt_queue = deque()
+
+    def append(self, ckpt_path):
+        self.ckpt_queue.append(ckpt_path)
+        if len(self.ckpt_queue) > self.max_ckpt_num:
+            ckpt_to_delete = self.ckpt_queue.popleft()
+            os.remove(ckpt_to_delete)
+
+
 def train(hyp, opt):
     set_seed()
     if opt.enable_modelarts:
@@ -191,7 +211,6 @@ def train(hyp, opt):
 
     with open(opt.data) as f:
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
-    is_coco = data_dict['dataset_name'] == "coco"
     nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
     names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
@@ -246,7 +265,7 @@ def train(hyp, opt):
                                                             num_parallel_workers=12 if rank_size > 1 else 8,
                                                             image_weights=opt.image_weights, quad=opt.quad,
                                                             prefix=colorstr('train: '), model_train=True)
-    if opt.run_eval:
+    if opt.save_checkpoint or opt.run_eval:
         infer_model = copy.deepcopy(model) if opt.ema else model
         rect = False
         val_batch_size = 32
@@ -323,9 +342,8 @@ def train(hyp, opt):
     optimizer.set_train(True)
     best_map = 0.
     run_profiler_epoch = 2
-    ema_ckpt_queue = deque()
-    ckpt_queue = deque()
-    max_ckpt_num = opt.max_ckpt_num
+    ema_ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
+    ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
 
     data_size = dataloader.get_dataset_size()
     jit = True if opt.ms_mode.lower() == "graph" else False
@@ -346,39 +364,33 @@ def train(hyp, opt):
 
         if opt.profiler and (cur_epoch == run_profiler_epoch):
             break
-        eval_results = None
-        if opt.save_checkpoint and (rank % 8 == 0) and (cur_epoch >= opt.start_save_epoch) \
-                and (cur_epoch % opt.save_interval == 0):
-            eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
-            # Save Checkpoint
-            model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
-            ckpt_path = os.path.join(wdir, f"{model_name}_{cur_epoch}.ckpt")
-            print("save ckpt path:", ckpt_path, flush=True)
-            ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
-            ckpt_queue.append(ckpt_path)
-            if len(ckpt_queue) > max_ckpt_num:
-                ckpt_to_delete = ckpt_queue.popleft()
-                os.remove(ckpt_to_delete)
-            if ema:
-                params_list = []
-                for p in ema.ema_weights:
-                    _param_dict = {'name': p.name[len("ema."):], 'data': Tensor(p.data.asnumpy())}
-                    params_list.append(_param_dict)
 
-                ema_ckpt_path = os.path.join(wdir, f"EMA_{model_name}_{cur_epoch}.ckpt")
-                ms.save_checkpoint(params_list, ema_ckpt_path, append_dict={"updates": ema.updates, "epoch": cur_epoch})
-                ema_ckpt_queue.append(ema_ckpt_path)
-                if len(ema_ckpt_queue) > max_ckpt_num:
-                    ckpt_to_delete = ema_ckpt_queue.popleft()
-                    os.remove(ckpt_to_delete)
-            if opt.enable_modelarts:
-                sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
+        def is_save_epoch():
+            return (cur_epoch >= opt.start_save_epoch) and (cur_epoch % opt.save_interval == 0)
+
+        eval_results = None
+        if opt.save_checkpoint and is_save_epoch():
+            eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
+            if rank % 8 == 0:
+                # Save Checkpoint
+                model_name = Path(opt.cfg).stem  # delete ".yaml"
+                ckpt_path = os.path.join(wdir, f"{model_name}_{cur_epoch}.ckpt")
+                print("[INFO] Save ckpt path:", ckpt_path, flush=True)
+                ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
+                ckpt_queue.append(ckpt_path)
                 if ema:
-                    sync_data(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
-            map_str_path = os.path.join(wdir, f"{model_name}_{cur_epoch}_map.txt")
-            coco_map_table_str = eval_results[-1]
-            with open(map_str_path, 'w') as file:
-                file.write(f"COCO API:\n{coco_map_table_str}\n")
+                    ema_ckpt_path = os.path.join(wdir, f"EMA_{model_name}_{cur_epoch}.ckpt")
+                    append_dict = {"updates": ema.updates, "epoch": cur_epoch}
+                    save_ema(ema, ema_ckpt_path, append_dict)
+                    ema_ckpt_queue.append(ema_ckpt_path)
+                if opt.enable_modelarts:
+                    sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
+                    if ema:
+                        sync_data(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
+                map_str_path = os.path.join(wdir, f"{model_name}_{cur_epoch}_map.txt")
+                coco_map_table_str = eval_results[-1]
+                with open(map_str_path, 'w') as file:
+                    file.write(f"COCO API:\n{coco_map_table_str}\n")
 
         # Evaluation
         def is_eval_epoch():
@@ -395,18 +407,13 @@ def train(hyp, opt):
                 best_map = mean_ap
                 print(f"[INFO] Best result: Best mAP [{best_map}] at epoch [{cur_epoch}]", flush=True)
                 # save best checkpoint
-                model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
+                model_name = Path(opt.cfg).stem  # delete ".yaml"
                 ckpt_path = os.path.join(wdir, f"{model_name}_best.ckpt")
                 ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
                 if ema:
-                    params_list = []
-                    for p in ema.ema_weights:
-                        _param_dict = {'name': p.name[len("ema."):], 'data': Tensor(p.data.asnumpy())}
-                        params_list.append(_param_dict)
-
                     ema_ckpt_path = os.path.join(wdir, f"EMA_{model_name}_best.ckpt")
-                    ms.save_checkpoint(params_list, ema_ckpt_path,
-                                       append_dict={"updates": ema.updates, "epoch": cur_epoch})
+                    append_dict = {"updates": ema.updates, "epoch": cur_epoch}
+                    save_ema(ema, ema_ckpt_path, append_dict)
                 if opt.enable_modelarts:
                     sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
                     if ema:
