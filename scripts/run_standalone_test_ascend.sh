@@ -53,7 +53,7 @@ cp -r ../scripts/*.sh "${eval_exp}"/scripts/
 cd "${eval_exp}" || exit
 env > env.log
 python test.py \
-  --WEIGHTSs=$WEIGHTS \
+  --weights=$WEIGHTS \
   --cfg=$CONFIG_PATH \
   --data=$DATA_PATH \
   --hyp=$HYP_PATH \

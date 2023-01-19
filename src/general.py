@@ -1,8 +1,10 @@
 import re
 import glob
 import math
+import time
 import platform
 import numpy as np
+from typing import Callable
 from pathlib import Path
 import mindspore as ms
 import pkg_resources as pkg
@@ -279,3 +281,58 @@ class Synchronize:
                 f"Sync value {sync} is not equal to number of device {self.rank_size}. "
                 f"There might be wrong with devices."
             )
+
+
+class MasterWrapper:
+    """
+        This is a function wrapper for distributed training or test.
+        The wrapped function will only be executed on master device, (e.g. rank % 8 == 0)
+        and the other devices would wait for master device to finish function execution.
+        The wrapper will call Synchronize class, which will call AllReduce op for barrier synchronization,
+        then the wrapper will create a file to force slave devices to wait for master device.
+        After finish function execution, the created file will be removed.
+
+        Args:
+        rank (int): Rank index of current device.
+        rank_size (int): Rank size of all devices.
+        is_distributed (bool): Whether program is running on distributed.
+        sync_file (str): File path where to create file for synchronization.
+        func (Callable): Function which would be wrapped.
+    """
+    def __init__(self, rank: int, rank_size: int, is_distributed: bool, sync_file: str, func: Callable):
+        self.rank = rank
+        self.rank_size = rank_size
+        self.is_distributed = is_distributed
+        self.sync_file = Path(sync_file)
+        self.sync = Synchronize(rank_size) if is_distributed else None
+        self.func = func
+        self._results = None # Save function results
+
+    def create_sync_file(self):
+        if self.is_distributed and (self.rank % 8 == 0):
+            print(f"[INFO] Create sync temp file at path {self.sync_file}", flush=True)
+            self.sync_file.touch(exist_ok=False)
+
+    def delete_sync_file(self):
+        if self.is_distributed and (self.rank % 8 == 0) and self.sync_file.exists():
+            print(f"[INFO] Delete sync temp file at path {self.sync_file}", flush=True)
+            self.sync_file.unlink(missing_ok=False)
+
+    def __call__(self, *args, **kwargs):
+        self.create_sync_file()
+        if self.sync is not None:
+            self.sync()
+        if self.rank % 8 == 0:
+            print(f"[INFO] Rank [{self.rank}] device begins running function {self.func.__name__}...", flush=True)
+            self._results = self.func(*args, **kwargs)
+            print(f"[INFO] Rank [{self.rank}] device finishes running function {self.func.__name__}", flush=True)
+            self.delete_sync_file()
+        else:
+            print(f"[INFO] Rank [{self.rank}] device waiting device [0] "
+                  f"running function {self.func.__name__}...", flush=True)
+            while self.sync_file.exists():
+                time.sleep(1)
+            print(f"[INFO] Rank [{self.rank}] continue execution.", flush=True)
+
+    def get_result(self):
+        return self._results
