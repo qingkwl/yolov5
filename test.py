@@ -26,7 +26,7 @@ from mindspore.communication.management import init, get_rank, get_group_size
 from src.network.yolo import Model
 from config.args import get_args_test
 from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
-    colorstr, box_iou, MasterWrapper, increment_path
+    colorstr, box_iou, Synchronize, increment_path
 from src.dataset import create_dataloader
 from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
 from src.plots import plot_study_txt, plot_images, output_to_target
@@ -148,7 +148,7 @@ def merge_json(project_dir, prefix):
     with open(merged_json, "w") as file_handler:
         json.dump(merged_result, file_handler)
     print(f"[INFO] Write merged results to file {merged_json} successfully.", flush=True)
-    return merged_json
+    return merged_json, merged_result
 
 
 def test(data,
@@ -188,6 +188,7 @@ def test(data,
     nc = 1 if single_cls else int(data['nc'])  # number of classes
     iouv = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
     niou = np.prod(iouv.shape)
+    synchronize = Synchronize(rank_size) if is_distributed else None
     project_dir = os.path.join(opt.project, f"epoch_{cur_epoch}")
     save_dir = os.path.join(project_dir, f"save_dir_{rank}")
     save_dir = increment_path(save_dir, exist_ok=opt.exist_ok)
@@ -361,7 +362,8 @@ def test(data,
         w = Path(weights).stem if weights is not None else ''  # weights
         data_dir = Path(data["val"]).parent
         anno_json = os.path.join(data_dir, "annotations/instances_val2017.json")
-        if opt.transfer_format and not os.path.exists(anno_json): # data format transfer if annotations does not exists
+        if opt.transfer_format and not os.path.exists(
+                anno_json):  # data format transfer if annotations does not exists
             print("[INFO] Transfer annotations from yolo to coco format.")
             transformer = YOLO2COCO(data_dir, output_dir=data_dir,
                                     class_names=data["names"], class_map=class_map,
@@ -371,22 +373,29 @@ def test(data,
         print('\nEvaluating pycocotools mAP... saving %s...' % pred_json)
         with open(pred_json, 'w') as f:
             json.dump(jdict, f)
-
-        def calculate_map():
-            if is_distributed:
-                merged_json, merged_results = merge_json(project_dir, prefix=w)
-                # COCO api support annotation list as argument which can avoid read json file again
-                map, map50, map_table_str = coco_eval(anno_json, merged_results, dataset, is_coco)
-            else:
+        sync_tmp_file = os.path.join(project_dir, 'sync_file.tmp')
+        if is_distributed:
+            if rank == 0:
+                print(f"[INFO] Create sync temp file at path {sync_tmp_file}", flush=True)
+                os.mknod(sync_tmp_file)
+            synchronize()
+            # Merge multiple results files
+            if rank == 0:
+                print("[INFO] Merge detection results...", flush=True)
+                pred_json, merged_results = merge_json(project_dir, prefix=w)
+        try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
+            if rank == 0:
+                print("[INFO] Start evaluating mAP...", flush=True)
                 map, map50, map_table_str = coco_eval(anno_json, pred_json, dataset, is_coco)
-            return map, map50
-
-        sync_file = os.path.join(project_dir, 'sync_file.tmp')
-        compute_map = MasterWrapper(rank, rank_size, is_distributed, sync_file, calculate_map)
-        try:
-            compute_map()
-            if rank % 8 == 0:
-                map, map50, map_table_str = compute_map.get_result()
+                print("[INFO] Finish evaluating mAP.", flush=True)
+                if os.path.exists(sync_tmp_file):
+                    print(f"[INFO] Delete sync temp file at path {sync_tmp_file}", flush=True)
+                    os.remove(sync_tmp_file)
+            else:
+                print(f"[INFO] Waiting for rank [0] device...", flush=True)
+                while os.path.exists(sync_tmp_file):
+                    time.sleep(1)
+                print(f"[INFO] Rank [{rank}] continue executing.", flush=True)
         except Exception as e:
             print(f'pycocotools unable to run: {e}')
 
