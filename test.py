@@ -268,7 +268,8 @@ def test(data,
         data_time = time.time() - s_time
         # Run model
         t = time.time()
-        pred_out, train_out = model(img_tensor, augment=augment)  # inference and training outputs
+        # inference and training outputs
+        pred_out, train_out = model(img_tensor) if compute_loss else (model(img_tensor, augment=augment), None)
         infer_time = time.time() - t
         t0 += infer_time
 
