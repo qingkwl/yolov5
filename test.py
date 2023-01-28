@@ -388,6 +388,7 @@ def test(data,
                 print("[INFO] Start evaluating mAP...", flush=True)
                 map, map50, map_table_str = coco_eval(anno_json, pred_json, dataset, is_coco)
                 print("[INFO] Finish evaluating mAP.", flush=True)
+                print(f"COCO mAP:\n{map_table_str}", flush=True)
                 if os.path.exists(sync_tmp_file):
                     print(f"[INFO] Delete sync temp file at path {sync_tmp_file}", flush=True)
                     os.remove(sync_tmp_file)
