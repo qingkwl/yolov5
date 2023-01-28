@@ -116,8 +116,8 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None, 
 
         def construct(self, x, label, sizes=None):
             x /= 255.0
-            if sizes is not None:
-                x = ops.interpolate(x, sizes=sizes, coordinate_transformation_mode="asymmetric", mode="bilinear")
+            # if sizes is not None:
+            #     x = ops.interpolate(x, sizes=sizes, coordinate_transformation_mode="asymmetric", mode="bilinear")
             pred = self.model(x)
             loss, loss_items = self.compute_loss(pred, label)
             loss_items = ops.stop_gradient(loss_items)

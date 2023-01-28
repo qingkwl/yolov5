@@ -1,4 +1,5 @@
 import math
+import random
 import numpy as np
 from pathlib import Path
 from copy import deepcopy
@@ -6,7 +7,7 @@ import mindspore as ms
 import mindspore.numpy as mnp
 from mindspore import nn, ops, Tensor
 from mindspore.common.initializer import HeUniform
-from src.general import make_divisible
+from src.general import make_divisible, check_img_size
 from src.autoanchor import check_anchor_order
 from src.network.common import parse_model, Detect, Segment
 
@@ -49,11 +50,24 @@ def _get_stride_max(stride):
     return int(stride.max())
 
 
+@ops.constexpr
+def _get_new_size(img_shape, gs, imgsz):
+    sz = random.randrange(int(imgsz * 0.5), int(imgsz * 1.5 + gs)) // gs * gs  # size
+    sf = sz / max(img_shape[2:])  # scale factor
+    new_size = img_shape
+    if sf != 1:
+        # new size (stretched to gs-multiple)
+        # Use tuple because nn.interpolate only supports tuple `sizes` parameter must be tuple
+        new_size = tuple(math.ceil(x * sf / gs) * gs for x in img_shape[2:])
+    return new_size
+
+
 class Model(nn.Cell):
     def __init__(self, cfg='yolor-csp-c.yaml', ch=3, nc=None, anchors=None, sync_bn=False,
                  opt=None):  # model, input channels, number of classes
         super(Model, self).__init__()
         self.traced = False
+        self.multi_scale = False
         if isinstance(cfg, dict):
             self.yaml = cfg  # model dict
         else:  # is *.yaml
@@ -76,6 +90,7 @@ class Model(nn.Cell):
 
         # Recompute
         if opt is not None:
+            self.multi_scale = opt.multi_scale
             if opt.recompute and opt.recompute_layers > 0:
                 for i in range(opt.recompute_layers):
                     self.model[i].recompute()
@@ -94,11 +109,16 @@ class Model(nn.Cell):
             self.stride_np = np.array(self.yaml['stride'])
             self._initialize_biases()  # only run once
             # print('Strides: %s' % m.stride.tolist())
+            self.gs = max(int(self.stride.asnumpy().max()), 32)  # grid size (max stride)
+            self.imgsz, _ = [check_img_size(x, self.gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
         # Init weights, biases
         initialize_weights(self.model)
 
     def construct(self, x, augment=False):
+        if self.multi_scale and self.training:
+            x = ops.interpolate(x, sizes=_get_new_size(x.shape, self.gs, self.imgsz),
+                                coordinate_transformation_mode="asymmetric", mode="bilinear")
         if augment:
             img_size = x.shape[-2:]  # height, width
             s = (1, 0.83, 0.67)  # scales
