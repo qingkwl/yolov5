@@ -90,7 +90,6 @@ class Model(nn.Cell):
 
         # Recompute
         if opt is not None:
-            self.multi_scale = opt.multi_scale
             if opt.recompute and opt.recompute_layers > 0:
                 for i in range(opt.recompute_layers):
                     self.model[i].recompute()
@@ -109,6 +108,10 @@ class Model(nn.Cell):
             self.stride_np = np.array(self.yaml['stride'])
             self._initialize_biases()  # only run once
             # print('Strides: %s' % m.stride.tolist())
+
+        # Multi-scale
+        if opt is not None:
+            self.multi_scale = opt.multi_scale if hasattr(opt, 'multi_scale') else False
             self.gs = max(int(self.stride.asnumpy().max()), 32)  # grid size (max stride)
             self.imgsz, _ = [check_img_size(x, self.gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
@@ -125,7 +128,7 @@ class Model(nn.Cell):
             f = (None, 3, None)  # flips (2-ud, 3-lr)
             y = ()  # outputs
             for si, fi in zip(s, f):
-                xi = scale_img(ops.ReverseV2(fi)(x) if fi else x, si, gs=_get_stride_max(self.stride_np))
+                xi = scale_img(ops.ReverseV2([fi])(x) if fi else x, si, gs=_get_stride_max(self.stride_np))
                 # xi = scale_img(x.flip(fi) if fi else x, si, gs=int(self.stride.max()))
                 yi = self.forward_once(xi)[0]  # forward
                 # cv2.imwrite(f'img_{si}.jpg', 255 * xi[0].cpu().numpy().transpose((1, 2, 0))[:, :, ::-1])  # save
