@@ -62,7 +62,7 @@ class CocoDraw:
         ]
 
     def write_list_to_csv(self, file_path, data_to_write, append=False):
-        print('Saving data into file [{}]...'.format(file_path))
+        print('[INFO] Saving data into file [{}]...'.format(file_path))
         if append:
             open_mode = 'a'
         else:
@@ -249,7 +249,7 @@ class DetectEval(COCOeval):
         compute every class's:
         [label, tp_num, gt_num, dt_num, precision, recall]
         """
-        print("Evaluate every class's predision and recall")
+        print("[INFO] Evaluate every class's predision and recall")
         p = self.params
         cat_ids = p.catIds
         labels = p.labels
@@ -299,7 +299,7 @@ class DetectEval(COCOeval):
         A: area range, (all, small, medium, large), idx from 0 to 3
         M: max dets, (1, 10, 100), idx from 0 to 2
         """
-        print("Plot pr curve about every class")
+        print("[INFO] Plot pr curve about every class")
         precisions = self.eval["precision"]
         p = self.params
         cat_ids = p.catIds
@@ -328,7 +328,7 @@ class DetectEval(COCOeval):
         """
         save annotations images
         """
-        print("saving eval images")
+        print("[INFO] saving eval images")
         p = self.params
         img_ids = p.imgIds
         labels = p.labels
@@ -340,8 +340,9 @@ class DetectEval(COCOeval):
         if os.path.exists(eval_result_path):
             shutil.rmtree(eval_result_path)
         os.mkdir(eval_result_path)
-
-        for img_id in img_ids:
+        total_num = len(img_ids)
+        for i, img_id in enumerate(img_ids):
+            print(f"[INFO] process anns image: {i}/{total_num} {(i*1.0/total_num)*100 :.2f}%", end="\r", flush=True)
             img_id = int(img_id)
             img_info = self.cocoGt.loadImgs(img_id)
             assert config.dataset in ("coco", "voc")
@@ -372,7 +373,7 @@ class DetectEval(COCOeval):
                     self.draw_tool.draw_one_box(image, label, (xmin, ymin, xmax, ymax), category_id)
 
             self.draw_tool.save_image(im_path_out, image)
-        print("save images completed")
+        print("\n[INFO] Draw images completed")
 
     def save_category_images(self, config, eval_result_path, im_path_dir, iou_threshold=0.5):
         """
@@ -382,7 +383,7 @@ class DetectEval(COCOeval):
             eval_result_path: str, path to save images
             iou_threshold: int, iou_threshold
         """
-        print("Saving images of ok ng")
+        print("[INFO] Saving images of ok ng")
         p = self.params
         img_ids = p.imgIds
         cat_ids = p.catIds if p.useCats else [-1]  # list: [0,1,2,3....]
@@ -390,8 +391,9 @@ class DetectEval(COCOeval):
 
         dt = self.cocoDt.getAnnIds()
         dts = self.cocoDt.loadAnns(dt)
-
-        for img_id in img_ids:
+        total_num = len(img_ids)
+        for i, img_id in enumerate(img_ids):
+            print(f"[INFO] process category image: {i}/{total_num} {(i*1.0/total_num)*100 :.2f}%", end="\r", flush=True)
             img_id = int(img_id)
             img_info = self.cocoGt.loadImgs(img_id)
             assert config.dataset in ("coco", "voc")
@@ -494,11 +496,12 @@ class DetectEval(COCOeval):
                             label = label + " " + str(round(score, 3))
                             self.draw_tool.draw_one_box(image, label, (xmin, ymin, xmax, ymax), category_id)
                     self.draw_tool.save_image(im_path_out, image)
+            print("\n")
 
     def compute_precison_recall_f1(self, min_score=0.1):
-        print('Compute precision, recall, f1...')
+        print('[INFO] Compute precision, recall, f1...')
         if not self.evalImgs:
-            print('Please run evaluate() first')
+            print('[INFO] Please run evaluate() first')
         p = self.params
         catIds = p.catIds if p.useCats == 1 else [-1]
         labels = p.labels
@@ -600,9 +603,9 @@ class DetectEval(COCOeval):
                 break
 
     def compute_tp_fp_confidence(self):
-        print('Compute tp and fp confidences')
+        print('[INFO] Compute tp and fp confidences')
         if not self.evalImgs:
-            print('Please run evaluate() first')
+            print('[WARNING] Please run evaluate() first')
         p = self.params
         catIds = p.catIds if p.useCats == 1 else [-1]
         labels = p.labels
@@ -680,7 +683,7 @@ class DetectEval(COCOeval):
         """
         write best confidence threshold
         """
-        print("Write best confidence threshold to csv")
+        print("[INFO] Write best confidence threshold to csv")
         result_csv = os.path.join(eval_result_path, "best_threshold.csv")
         result = ["cat_name", "best_f1", "best_precision", "best_recall", "best_score"]
         self.draw_tool.write_list_to_csv(result_csv, result, append=False)
@@ -751,7 +754,7 @@ class DetectEval(COCOeval):
         plot matrix-confidence curve
         cat_pr_dict:{"label_name":[precision, recall, f1, score]}
         """
-        print('Plot mc curve')
+        print('[INFO] Plot mc curve')
         savefig_path = os.path.join(eval_result_path, 'pr_cofidence_fig')
         if not os.path.exists(savefig_path):
             os.mkdir(savefig_path)
@@ -1086,7 +1089,7 @@ class CocoVisualUtil(CocoDraw):
         cat_pr_dict, cat_pr_dict_origin = E.compute_precison_recall_f1()
         # E.write_best_confidence_threshold(cat_pr_dict, cat_pr_dict_origin, eval_result_path)
         best_confidence_thres = E.write_best_confidence_threshold(cat_pr_dict, cat_pr_dict_origin, eval_result_path)
-        print("best_confidence_thres: ", best_confidence_thres)
+        print("[INFO] best_confidence_thres: ", best_confidence_thres)
         E.plot_mc_curve(cat_pr_dict, eval_result_path)
 
         # 3
@@ -1138,9 +1141,9 @@ class CocoVisualUtil(CocoDraw):
                         pass
 
             if sum(flags) == 3:
-                print("Successfully created 'eval_results' visualizations")
+                print("[INFO] Successfully created 'eval_results' visualizations")
             else:
-                print("Failed to create 'eval_results' visualizations")
+                print("[ERROR] Failed to create 'eval_results' visualizations")
 
         anns = json.load(open(result_files['bbox']))
         if not anns:

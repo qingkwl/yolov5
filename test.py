@@ -412,11 +412,16 @@ def test(data,
             if rank == 0:
                 print("[INFO] Merge detection results...", flush=True)
                 pred_json, merged_results = merge_json(project_dir, prefix=w)
-        try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
-            if opt.result_view or opt.recommend_threshold:
+        try:
+            if rank == 0 and (opt.result_view or opt.recommend_threshold):
+                print("[INFO] Start visualization result.", flush=True)
                 view_result(anno_json, pred_json, data["val"], score_threshold=None,
                             recommend_threshold=opt.recommend_threshold)
-                print("View eval result completed!", flush=True)
+                print("[INFO] Visualization result completed.", flush=True)
+        except Exception as e:
+            print(f'[WARNING] Visualization eval result fail: {e}', flush=True)
+
+        try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
             if rank == 0:
                 print("[INFO] Start evaluating mAP...", flush=True)
                 map, map50, map_table_str = coco_eval(anno_json, merged_results if is_distributed else jdict,
