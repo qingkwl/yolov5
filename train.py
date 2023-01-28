@@ -130,7 +130,7 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None, 
     print(f"[INFO] rank_size: {rank_size}", flush=True)
     net_with_loss = NetworkWithLoss(model, compute_loss, rank_size)
     train_step = build_train_network(network=net_with_loss, ema=ema, optimizer=optimizer, level='O0',
-                                     boost_level='O1', amp_loss_scaler=loss_scaler, sens=sens)
+                                     boost_level='O0', amp_loss_scaler=loss_scaler, sens=sens)
     return train_step
 
 
@@ -370,7 +370,8 @@ def train(hyp, opt):
 
         eval_results = None
         if opt.save_checkpoint and is_save_epoch():
-            eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
+            if opt.run_eval:
+                eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
             if rank % 8 == 0:
                 # Save Checkpoint
                 model_name = Path(opt.cfg).stem  # delete ".yaml"

@@ -96,7 +96,7 @@ def load_checkpoint_to_yolo(model, ckpt_path):
 
 def compute_metrics(plots, save_dir, names, nc, seen, stats, verbose, training):
     # Compute metrics
-    p, r, f1, mp, mr, map50, map, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
+    p, r, f1, mp, mr, map50, map = 0., 0., 0., 0., 0., 0., 0.
     ap, ap_class = [], []
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats) and stats[0].any():
@@ -387,6 +387,7 @@ def test(data,
             if rank == 0:
                 print("[INFO] Start evaluating mAP...", flush=True)
                 map, map50, map_table_str = coco_eval(anno_json, pred_json, dataset, is_coco)
+                print(f"COCO mAP:\n{map_table_str}", flush=True)
                 print("[INFO] Finish evaluating mAP.", flush=True)
                 if os.path.exists(sync_tmp_file):
                     print(f"[INFO] Delete sync temp file at path {sync_tmp_file}", flush=True)
