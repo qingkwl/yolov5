@@ -368,29 +368,22 @@ def train(hyp, opt):
         def is_save_epoch():
             return (cur_epoch >= opt.start_save_epoch) and (cur_epoch % opt.save_interval == 0)
 
-        eval_results = None
-        if opt.save_checkpoint and is_save_epoch():
-            eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
-            if rank % 8 == 0:
-                # Save Checkpoint
-                model_name = Path(opt.cfg).stem  # delete ".yaml"
-                ckpt_path = os.path.join(wdir, f"{model_name}_{cur_epoch}.ckpt")
-                print("[INFO] Save ckpt path:", ckpt_path, flush=True)
-                ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
-                ckpt_queue.append(ckpt_path)
+        if opt.save_checkpoint and (rank % 8 == 0) and is_save_epoch():
+            # Save Checkpoint
+            model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
+            ckpt_path = os.path.join(wdir, f"{model_name}_{cur_epoch}.ckpt")
+            print("save ckpt path:", ckpt_path, flush=True)
+            ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
+            ckpt_queue.append(ckpt_path)
+            if ema:
+                ema_ckpt_path = os.path.join(wdir, f"EMA_{model_name}_{cur_epoch}.ckpt")
+                append_dict = {"updates": ema.updates, "epoch": cur_epoch}
+                save_ema(ema, ema_ckpt_path, append_dict)
+                ema_ckpt_queue.append(ema_ckpt_path)
+            if opt.enable_modelarts:
+                sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
                 if ema:
-                    ema_ckpt_path = os.path.join(wdir, f"EMA_{model_name}_{cur_epoch}.ckpt")
-                    append_dict = {"updates": ema.updates, "epoch": cur_epoch}
-                    save_ema(ema, ema_ckpt_path, append_dict)
-                    ema_ckpt_queue.append(ema_ckpt_path)
-                if opt.enable_modelarts:
-                    sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
-                    if ema:
-                        sync_data(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
-                map_str_path = os.path.join(wdir, f"{model_name}_{cur_epoch}_map.txt")
-                coco_map_table_str = eval_results[-1]
-                with open(map_str_path, 'w') as file:
-                    file.write(f"COCO API:\n{coco_map_table_str}\n")
+                    sync_data(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
 
         # Evaluation
         def is_eval_epoch():
@@ -398,10 +391,7 @@ def train(hyp, opt):
                    ((cur_epoch >= opt.eval_start_epoch) and (cur_epoch % opt.eval_epoch_interval) == 0)
 
         if opt.run_eval and is_eval_epoch():
-            if eval_results is None:
-                eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
-            else:
-                print(f"[INFO] Evaluation has run at this epoch. Skip evaluation.", flush=True)
+            eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
             mean_ap = eval_results[3]
             if (rank % 8 == 0) and (mean_ap > best_map):
                 best_map = mean_ap
@@ -418,6 +408,10 @@ def train(hyp, opt):
                     sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
                     if ema:
                         sync_data(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
+                map_str_path = os.path.join(wdir, f"{model_name}_{cur_epoch}_map.txt")
+                coco_map_table_str = eval_results[-1]
+                with open(map_str_path, 'w') as file:
+                    file.write(f"COCO API:\n{coco_map_table_str}\n")
     return 0
 
 

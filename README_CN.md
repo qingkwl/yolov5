@@ -75,14 +75,17 @@ python train.py \
 ```
 
 ```bash
-# Run 1p by shell script, please change `device_target` in config file to run on Ascend/GPU, and change `T_max`, `max_epoch`, `warmup_epochs` refer to 目录 of notes
-bash run_standalone_train_ascend.sh -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH]
+# Run 1p by shell script, please change `device_target` in config file to run on Ascend/GPU, and change `T_max`, `max_epoch`, `warmup_epochs` refer to contents of notes
+bash run_standalone_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml
 
 # For Ascend device, distributed training example(8p) by shell script
-bash run_distribute_train_ascend.sh -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH] -r [RANK_TABLE_FILE]
+bash run_distribute_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml -r hccl_8p_xx.json
 
 # For GPU device, distributed training example(8p) by shell script
-bash run_distribute_train_gpu.sh [CONFIG_PATH] [DATA_PATH] [HYP_PATH]
+bash run_distribute_train_gpu.sh ../config/network/yolov5s.yaml ../config/data/coco.yaml \
+     ../config/data/hyp.scratch-low.yaml
 ```
 
 您可以输入 `--help` 或者 `-H` 来查看更多 Shell 脚本的使用方法。
@@ -104,10 +107,12 @@ python test.py \
 
 ```bash
 # Run distributed evaluation by shell script
-bash run_distribute_test_ascend.sh -w [WEIGHTS_PATH] -r [RANK_TABLE_FILE] -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH]
+bash run_distribute_test_ascend.sh -w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml -r hccl_8p_xx.json
 
 # Run standalone evaluation by shell script
-bash run_standalone_test_ascend.sh -w [WEIGHTS_PATH] -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH]
+bash run_standalone_test_ascend.sh -w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml
 ```
 
 脚本运行相关的配置文件存放在 `config` 文件夹中。`config/data` 路径下的 `coco.yaml` 保存了数据集相关的配置，
@@ -255,10 +260,12 @@ Distributed training example(8p) by shell script:
 
 ```bash
 # For Ascend device, distributed training example(8p) by shell script
-bash run_distribute_train_ascend.sh -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH] -r [RANK_TABLE_FILE]
+bash run_distribute_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml -r hccl_8p_xx.json
 
 # For GPU device, distributed training example(8p) by shell script
-bash run_distribute_train_gpu.sh [CONFIG_PATH] [DATA_PATH] [HYP_PATH]
+bash run_distribute_train_gpu.sh ../config/network/yolov5s.yaml ../config/data/coco.yaml \
+     ../config/data/hyp.scratch-low.yaml
 ```
 
 
@@ -283,10 +290,12 @@ python test.py \
   --batch_size=32 > log.txt 2>&1 &
 # OR
 # Run evaluation(8p) by shell script
-bash run_distribute_test_ascend.sh -w [WEIGHTS_PATH] -r [RANK_TABLE_FILE] -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH]
+bash run_distribute_test_ascend.sh -w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml -r hccl_8p_xx.json
 # OR
 # Run standalone evaluation by shell script
-bash run_standalone_test_ascend.sh -w [WEIGHTS_PATH] -c [CONFIG_PATH] -d [DATA_PATH] -h [HYP_PATH]
+bash run_standalone_test_ascend.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml
 ```
 
 以上 `Python` 命令会在后台运行。您可以通过 `log.txt` 文件查看输出信息。
