@@ -48,6 +48,9 @@ mkdir "${eval_exp}"
 cp ../*.py "${eval_exp}"
 cp -r ../config "${eval_exp}"
 cp -r ../src "${eval_exp}"
+if [ -d ../third_party ]; then
+  cp -r ../third_party "${eval_exp}"
+fi
 mkdir "${eval_exp}"/scripts
 cp -r ../scripts/*.sh "${eval_exp}"/scripts/
 cd "${eval_exp}" || exit

@@ -390,7 +390,8 @@ def test(data,
         try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
             if rank == 0:
                 print("[INFO] Start evaluating mAP...", flush=True)
-                map, map50, map_table_str = coco_eval(anno_json, merged_results, dataset, is_coco)
+                map, map50, map_table_str = coco_eval(anno_json, merged_results if is_distributed else jdict,
+                                                      dataset, is_coco)
                 print("[INFO] Finish evaluating mAP.", flush=True)
                 print(f"COCO mAP:\n{map_table_str}", flush=True)
                 if os.path.exists(sync_tmp_file):
