@@ -376,9 +376,12 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, epoch_size=300, hyp=
                       augment=False, cache=False, pad=0.0, rect=False, rank=0, rank_size=1,
                       num_parallel_workers=8, shuffle=True, drop_remainder=True,
                       image_weights=False, quad=False, max_box_per_img=160, prefix='', model_train=False):
+    if rect and shuffle:
+        print('[WARNING] --rect is incompatible with DataLoader shuffle, setting shuffle=False', flush=True)
+        shuffle = False
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache
     cv2.setNumThreads(2)
-    dataset = LoadImagesAndLabels(path, imgsz, batch_size,
+    dataset = LoadImagesAndLabels(path, imgsz, batch_size * rank_size,
                                   augment=augment,  # augment images
                                   hyp=hyp,  # augmentation hyperparameters
                                   rect=rect,  # rectangular training
