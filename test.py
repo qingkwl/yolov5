@@ -11,11 +11,14 @@ from contextlib import redirect_stdout
 
 import numpy as np
 from pycocotools.coco import COCO
+
 try:
     from third_party.fast_coco.fast_coco_eval_api import Fast_COCOeval as COCOeval
+
     print("[INFO] Use third party coco eval api to speed up mAP calculation.")
 except ImportError:
     from pycocotools.cocoeval import COCOeval
+
     print("[INFO] Third party coco eval api import failed, use default api.")
 
 import mindspore as ms
@@ -31,6 +34,11 @@ from src.dataset import create_dataloader
 from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
 from src.plots import plot_study_txt, plot_images, output_to_target
 from third_party.yolo2coco.yolo2coco import YOLO2COCO
+
+
+class Dict(dict):
+    __setattr__ = dict.__setitem__
+    __getattr__ = dict.__getitem__
 
 
 def save_one_json(predn, jdict, path, class_map):
@@ -149,6 +157,23 @@ def merge_json(project_dir, prefix):
         json.dump(merged_result, file_handler)
     print(f"[INFO] Write merged results to file {merged_json} successfully.", flush=True)
     return merged_json, merged_result
+
+
+def view_result(anno_json, result_json, val_path, score_threshold=None, recommend_threshold=False):
+    from src.coco_visual import CocoVisualUtil
+    dataset_coco = COCO(anno_json)
+    coco_visual = CocoVisualUtil()
+    eval_types = ["bbox"]
+    config = {"dataset": "coco"}
+    data_dir = Path(val_path).parent
+    img_path_name = os.path.splitext(os.path.basename(val_path))[0]
+    im_path_dir = os.path.join(data_dir, "images", img_path_name)
+    config = Dict(config)
+    with open(result_json,'r') as f:
+        result = json.load(f)
+    result_files = coco_visual.results2json(dataset_coco, result, "./results.pkl")
+    coco_visual.coco_eval(config, result_files, eval_types, dataset_coco, im_path_dir=im_path_dir,
+                          score_threshold=score_threshold, recommend_threshold=recommend_threshold)
 
 
 def test(data,
@@ -351,7 +376,7 @@ def test(data,
     # compute_metrics(plots, save_dir, names, nc, seen, stats, verbose, training)
 
     # Print speeds
-    total_time = (t0, t1, t2, t0 + t1 + t2, imgsz, imgsz, batch_size) # tuple
+    total_time = (t0, t1, t2, t0 + t1 + t2, imgsz, imgsz, batch_size)  # tuple
     t = tuple(x / seen * 1E3 for x in total_time[:4]) + (imgsz, imgsz, batch_size)  # tuple
     # if not training:
     print('Speed: %.1f/%.1f/%.1f/%.1f ms inference/NMS/Metric/total per %gx%g image at batch-size %g' % t)
@@ -387,6 +412,15 @@ def test(data,
             if rank == 0:
                 print("[INFO] Merge detection results...", flush=True)
                 pred_json, merged_results = merge_json(project_dir, prefix=w)
+        try:
+            if rank == 0 and (opt.result_view or opt.recommend_threshold):
+                print("[INFO] Start visualization result.", flush=True)
+                view_result(anno_json, pred_json, data["val"], score_threshold=None,
+                            recommend_threshold=opt.recommend_threshold)
+                print("[INFO] Visualization result completed.", flush=True)
+        except Exception as e:
+            print(f'[WARNING] Visualization eval result fail: {e}', flush=True)
+
         try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
             if rank == 0:
                 print("[INFO] Start evaluating mAP...", flush=True)

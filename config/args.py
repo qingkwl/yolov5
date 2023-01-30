@@ -61,6 +61,9 @@ def get_args_train():
                         help='existing project/name ok, do not increment')
     parser.add_argument('--quad', type=ast.literal_eval, default=False, help='quad dataloader')
     parser.add_argument('--linear_lr', type=ast.literal_eval, default=True, help='linear LR')
+    parser.add_argument('--result_view', type=ast.literal_eval, default=False, help='view the eval result')
+    parser.add_argument('--recommend_threshold', type=ast.literal_eval, default=False,
+                        help='recommend threshold in eval')
     parser.add_argument('--label_smoothing', type=float, default=0.0, help='Label smoothing epsilon')
     parser.add_argument('--upload_dataset', type=ast.literal_eval, default=False,
                         help='Upload dataset as W&B artifact table')
@@ -130,6 +133,9 @@ def get_args_test():
     parser.add_argument('--v5_metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--transfer_format', type=ast.literal_eval, default=True,
                         help='whether transform data format to coco')
+    parser.add_argument('--result_view', type=ast.literal_eval, default=False, help='view the eval result')
+    parser.add_argument('--recommend_threshold', type=ast.literal_eval, default=False,
+                        help='recommend threshold in eval')
     opt = parser.parse_args()
     return opt
 
