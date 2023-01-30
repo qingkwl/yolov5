@@ -349,12 +349,12 @@ def train(hyp, opt):
     jit = True if opt.ms_mode.lower() == "graph" else False
     sink_process = ms.data_sink(train_step, dataloader, steps=data_size * epochs, sink_size=data_size, jit=jit)
 
-    for cur_epoch in range(epochs):
+    for cur_epoch in range(resume_epoch, epochs):
         cur_epoch = cur_epoch + 1
         start_train_time = time.time()
         loss = sink_process()
         end_train_time = time.time()
-        print(f"Epoch {epochs}/{cur_epoch}, step {data_size}, "
+        print(f"Epoch {epochs-resume_epoch}/{cur_epoch}, step {data_size}, "
               f"epoch time {((end_train_time - start_train_time) * 1000):.2f} ms, "
               f"step time {((end_train_time - start_train_time) * 1000 / data_size):.2f} ms, "
               f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "

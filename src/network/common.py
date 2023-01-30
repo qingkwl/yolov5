@@ -1,6 +1,5 @@
 import copy
 import math
-import warnings
 import numpy as np
 import mindspore as ms
 import mindspore.numpy as mnp
@@ -68,7 +67,6 @@ class Bottleneck(nn.Cell):
         self.conv2 = Conv(c_, c2, 3, 1)
         self.add = shortcut and c1 == c2
 
-    # @ms.ms_function
     def construct(self, x):
         c1 = self.conv1(x)
         c2 = self.conv2(c1)
@@ -83,7 +81,6 @@ class Concat(nn.Cell):
         super(Concat, self).__init__()
         self.d = dimension
 
-    # @ms.ms_function
     def construct(self, x):
         return ops.concat(x, self.d)
 
@@ -101,17 +98,12 @@ class Conv(nn.Cell):
         if _SYNC_BN:
             self.bn = nn.SyncBatchNorm(c2, momentum=0.1, eps=1e-5)
         else:
-            self.bn = nn.BatchNorm2d(c2, momentum=0.1, eps=1e-3)
+            self.bn = nn.BatchNorm2d(c2, momentum=0.1, eps=1e-5)
         # self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Cell) else nn.Identity())
         self.act = nn.SiLU() if act is True else act if isinstance(act, nn.Cell) else nn.Identity()
 
-    # @ms.ms_function
     def construct(self, x):
-        tmp = self.act(self.conv(x))
         return self.act(self.bn(self.conv(x)))
-
-    def fuseforward(self, x):
-        return self.act(self.conv(x))
 
 
 class C3(nn.Cell):
@@ -126,7 +118,6 @@ class C3(nn.Cell):
             [Bottleneck(c_, c_, shortcut, e=1.0) for _ in range(n)])
         self.concat = ops.Concat(axis=1)
 
-    # @ms.ms_function
     def construct(self, x):
         c1 = self.conv1(x)
         c2 = self.m(c1)
@@ -162,7 +153,6 @@ class Contract(nn.Cell):
         super().__init__()
         self.gain = gain
 
-    # @ms.ms_function
     def construct(self, x):
         b, c, h, w = x.size()  # assert (h / s == 0) and (W / s == 0), 'Indivisible gain'
         s = self.gain
@@ -177,7 +167,6 @@ class Expand(nn.Cell):
         super().__init__()
         self.gain = gain
 
-    # @ms.ms_function
     def construct(self, x):
         b, c, h, w = x.size()  # assert C / s ** 2 == 0, 'Indivisible gain'
         s = self.gain
@@ -264,59 +253,6 @@ class Detect(nn.Cell):
         # return outs
         return outs if self.training or self.is_export else (ops.concat(z, 1), outs)
 
-    def fuseforward(self, x):
-        # x = x.copy()  # for profiling
-        z = ()  # inference output
-        self.training |= self.export
-        for i in range(self.nl):
-            x[i] = self.m[i](x[i])  # conv
-            bs, _, ny, nx = x[i].shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
-            x[i] = ops.transpose(x[i].view(bs, self.na, self.no, ny, nx), (0, 1, 3, 4, 2))
-            x[i] = x[i]
-
-            if not self.training:  # inference
-                grid_i_shape = self.grid_cell[i].param.shape
-                x_i_shape = x[i].shape
-                if grid_i_shape[2] != x_i_shape[2] or grid_i_shape[3] != x_i_shape[3]:
-                    self.grid_cell[i].param = self._make_grid(nx, ny, self.grid_cell[i].param.dtype)
-
-                y = ops.Sigmoid()(x[i])
-                y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid_cell[i].param) * self.stride[i]  # xy
-                y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
-                z += (y.view(bs, -1, self.no),)
-
-        if self.training:
-            out = x
-        elif self.end2end:
-            out = ops.concat(z, 1)
-        elif self.include_nms:
-            z = self.convert(z)
-            out = (z,)
-        elif self.concat:
-            out = ops.concat(z, 1)
-        else:
-            out = (ops.concat(z, 1), x)
-
-        return out
-
-    def fuse(self):
-        print("IDetect.fuse")
-        # fuse ImplicitA and Convolution
-        for i in range(len(self.m)):
-            c1, c2, _, _ = self.m[i].weight.shape
-            c1_, c2_, _, _ = self.ia[i].implicit.shape
-            _value = self.m[i].bias + ops.matmul(self.m[i].weight.reshape(c1, c2),
-                                                 self.ia[i].implicit.reshape(c2_, c1_)).squeeze(1)
-            self.m[i].bias = ops.assign(self.m[i].bias, _value)
-
-        # fuse ImplicitM and Convolution
-        for i in range(len(self.m)):
-            c1, c2, _, _ = self.im[i].implicit.shape
-            self.m[i].bias = ops.assign(self.m[i].bias, self.m[i].bias * self.im[i].implicit.reshape(c2))
-            self.m[i].weight = ops.assign(self.m[i].weight, self.m[i].weight * self.im[i].implicit.transpose(0, 1))
-            # self.m[i].bias *= self.im[i].implicit.reshape(c2)
-            # self.m[i].weight *= self.im[i].implicit.transpose(0, 1)
-
     @staticmethod
     def _make_grid(nx=20, ny=20, dtype=ms.float32):
         xv, yv = ops.meshgrid((mnp.arange(nx), mnp.arange(ny)))
@@ -369,6 +305,7 @@ class Segment(Detect):
 
 
 def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
+    global _SYNC_BN
     _SYNC_BN = sync_bn
     print('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
     anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']

@@ -136,7 +136,7 @@ def coco_eval(anno_json, pred_json, dataset, is_coco):
     pred = anno.loadRes(pred_json)  # init predictions api
     eval = COCOeval(anno, pred, 'bbox')
     if is_coco:
-        eval.params.imgIds = [int(Path(x).stem) for x in dataset.img_files]  # image IDs to evaluate
+        eval.params.imgIds = [int(Path(x).stem) for x in dataset.im_files]  # image IDs to evaluate
     eval.evaluate()
     eval.accumulate()
     buffer = io.StringIO()

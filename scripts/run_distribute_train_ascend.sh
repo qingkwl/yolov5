@@ -65,6 +65,7 @@ do
     env > env.log
 
     taskset -c $cmdopt python train.py \
+        --weights=$WEIGHTS \
         --ms_strategy="StaticShape" \
         --ms_amp_level="O0" \
         --ms_loss_scaler="static" \
@@ -73,7 +74,7 @@ do
         --ms_grad_sens=1024 \
         --overflow_still_update=True \
         --clip_grad=False \
-        --sync_bn=True \
+        --sync_bn=False \
         --optimizer="momentum" \
         --cfg=$CONFIG_PATH \
         --data=$DATA_PATH \
