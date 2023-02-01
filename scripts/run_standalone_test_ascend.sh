@@ -44,15 +44,7 @@ export RANK_SIZE=1
 eval_exp=$(get_work_dir "eval_exp_standalone")
 eval_exp=$(realpath "${eval_exp}")
 echo "Make directory ${eval_exp}"
-mkdir "${eval_exp}"
-cp ../*.py "${eval_exp}"
-cp -r ../config "${eval_exp}"
-cp -r ../src "${eval_exp}"
-if [ -d ../third_party ]; then
-  cp -r ../third_party "${eval_exp}"
-fi
-mkdir "${eval_exp}"/scripts
-cp -r ../scripts/*.sh "${eval_exp}"/scripts/
+copy_files_to "$eval_exp"
 cd "${eval_exp}" || exit
 env > env.log
 python test.py \
