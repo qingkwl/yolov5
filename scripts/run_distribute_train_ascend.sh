@@ -59,15 +59,7 @@ do
     export DEVICE_ID=$((i + start_device_id))
     export RANK_ID=$i
     sub_dir="${train_exp}/train_parallel${i}"
-    mkdir "${sub_dir}"
-    cp ../*.py "${sub_dir}"
-    cp -r ../config "${sub_dir}"
-    cp -r ../src "${sub_dir}"
-    if [ -d ../third_party ]; then
-      cp -r ../third_party "${sub_dir}"
-    fi
-    mkdir "${sub_dir}/scripts"
-    cp -r ./*.sh "${sub_dir}/scripts/"
+    copy_files_to "$sub_dir"
     cd "${sub_dir}" || exit
     echo "start training for rank $RANK_ID, device $DEVICE_ID"
     env > env.log

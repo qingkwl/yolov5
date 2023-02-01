@@ -33,15 +33,7 @@ export RANK_ID=0
 train_exp=$(get_work_dir "train_exp_standalone")
 train_exp=$(realpath "${train_exp}")
 echo "Make directory ${train_exp}"
-mkdir "${train_exp}"
-cp ../*.py $"${train_exp}"
-cp -r ../config "${train_exp}"
-cp -r ../src "${train_exp}"
-if [ -d ../third_party ]; then
-  cp -r ../third_party "${train_exp}"
-fi
-mkdir "${train_exp}"/scripts
-cp -r ../scripts/*.sh "${train_exp}"/scripts/
+copy_files_to "$train_exp"
 cd "${train_exp}" || exit
 env > env.log
 

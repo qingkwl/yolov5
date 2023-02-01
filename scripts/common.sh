@@ -82,6 +82,20 @@ function check_number() {
 }
 
 
+function copy_files_to() {
+  target_dir=$1
+  mkdir "$target_dir"
+  cp ../*.py "$target_dir"
+  cp -r ../config "$target_dir"
+  cp -r ../src "$target_dir"
+  if [ -d ../third_party ]; then
+    cp -r ../third_party "$target_dir"
+  fi
+  mkdir "$target_dir/scripts"
+  cp -r ./*.sh "$target_dir/scripts/"
+}
+
+
 function parse_args() {
     while [ "$#" -gt 0 ]; do
         if [[ $1 =~ $SHORT_OPTION_RE ]]; then
