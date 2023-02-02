@@ -125,18 +125,14 @@ def create_train_network(model, optimizer, loss_scaler, grad_reducer=None, rank_
         loss *= rank_size
         return loss, ops.stop_gradient(loss_items)
 
-    grad_fn = ops.GradOperation(get_by_list=True, sens_param=True)(forward_func, optimizer.parameters)
+    gard_fn = ops.value_and_grad(forward_func, grad_position=None, weights=optimizer.parameters, has_aux=True)
     sens_value = sens
 
-    @ms.ms_function
+    @ms.jit
     def train_step(x, label, sizes=None, optimizer_update=True):
-        loss, loss_items = forward_func(x, label, sizes)
-        sens1, sens2 = ops.fill(loss.dtype, loss.shape, sens_value), \
-                       ops.fill(loss_items.dtype, loss_items.shape, sens_value)
-        grads = grad_fn(x, label, sizes, (sens1, sens2))
+        (loss, loss_items), grads = grad_fn(x, labels, sizes)
         grads = grad_reducer(grads)
         grads = loss_scaler.unscale(grads)
-        # grads_finite = all_finite(grads)
 
         if optimizer_update:
             loss = ops.depend(loss, optimizer(grads))

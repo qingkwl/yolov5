@@ -317,7 +317,7 @@ class Detect(nn.Cell):
 
     @staticmethod
     def _make_grid(nx=20, ny=20, dtype=ms.float32):
-        xv, yv = ops.meshgrid((mnp.arange(nx), mnp.arange(ny)))
+        xv, yv = ops.meshgrid(mnp.arange(nx), mnp.arange(ny))
         return ops.cast(ops.stack((xv, yv), 2).view((1, 1, ny, nx, 2)), dtype)
 
     def convert(self, z):
@@ -448,7 +448,7 @@ class EMA(nn.Cell):
         # decay exponential ramp (to help early epochs)
         return self.decay_value * (1 - ops.exp(ops.neg(x) / 2000))
 
-    @ms.ms_function
+    @ms.jit
     def update(self):
         # Update EMA parameters
         def update_param(d, ema_v, weight):
@@ -462,7 +462,7 @@ class EMA(nn.Cell):
 
         return updates
 
-    @ms.ms_function
+    @ms.jit
     def clone_from_model(self):
         updates = ops.assign_add(self.updates, 1)
         success = self.hyper_map(ops.assign, self.ema_weights, self.weights)
