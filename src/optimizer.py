@@ -6,7 +6,6 @@ from mindspore import nn
 import mindspore.common.dtype as mstype
 from mindspore.common.tensor import Tensor
 from mindspore._checkparam import Validator
-from mindspore.common.api import ms_function
 from mindspore.common.parameter import Parameter
 from mindspore.common.parameter import ParameterTuple
 from mindspore.ops import functional as F, composite as C, operations as P
@@ -174,7 +173,7 @@ class YoloMomentum(nn.Optimizer):
         self.use_dist_optimizer = self._use_distibuted_optimizer()
         self.gather = P.Gather()
 
-    @ms_function
+    @ms.jit
     def construct(self, gradients):
         params = self.params
         moments = self.moments

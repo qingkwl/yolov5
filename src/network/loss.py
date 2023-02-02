@@ -112,14 +112,14 @@ def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7
 
     # Get the coordinates of bounding boxes
     if xywh:  # transform from xywh to xyxy
-        x1, y1, w1, h1 = ops.split(box1, 1, 4)
-        x2, y2, w2, h2 = ops.split(box2, 1, 4)
+        x1, y1, w1, h1 = ops.split(box1, 1, 1)
+        x2, y2, w2, h2 = ops.split(box2, 1, 1)
         w1_, h1_, w2_, h2_ = w1 / 2, h1 / 2, w2 / 2, h2 / 2
         b1_x1, b1_x2, b1_y1, b1_y2 = x1 - w1_, x1 + w1_, y1 - h1_, y1 + h1_
         b2_x1, b2_x2, b2_y1, b2_y2 = x2 - w2_, x2 + w2_, y2 - h2_, y2 + h2_
     else:  # x1, y1, x2, y2 = box1
-        b1_x1, b1_y1, b1_x2, b1_y2 = ops.split(box1, 1, 4)
-        b2_x1, b2_y1, b2_x2, b2_y2 = ops.split(box2, 1, 4)
+        b1_x1, b1_y1, b1_x2, b1_y2 = ops.split(box1, 1, 1)
+        b2_x1, b2_y1, b2_x2, b2_y2 = ops.split(box2, 1, 1)
         w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1
         w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1
 
@@ -298,7 +298,8 @@ class ComputeLoss(nn.Cell):
         self.nc = m.nc  # number of classes
         self.nl = m.nl  # number of layers
         self.anchors = m.anchors
-
+        self.TensorScatterUpdate = ops.TensorScatterUpdate()
+        self.indices = Tensor(np.array([[2], [3], [4], [5]]), ms.int32)
         self._off = Tensor([
             [0, 0],
             [1, 0],
@@ -325,7 +326,7 @@ class ComputeLoss(nn.Cell):
         # Losses
         for layer_index, pi in enumerate(p):  # layer index, layer predictions
             tmask = tmasks[layer_index]
-            b, a, gj, gi = ops.split(indices[layer_index] * tmask[None, :], 0, 4)  # image, anchor, gridy, gridx
+            b, a, gj, gi = ops.split(indices[layer_index] * tmask[None, :], 1)  # image, anchor, gridy, gridx
             b, a, gj, gi = b.view(-1), a.view(-1), gj.view(-1), gi.view(-1)
             tobj = ops.zeros(pi.shape[:4], pi.dtype)  # target obj
 
@@ -381,7 +382,7 @@ class ComputeLoss(nn.Cell):
         mask_t = targets[:, 1] >= 0
         na, nt = self.na, targets.shape[0]  # number of anchors, targets
         tcls, tbox, indices, anch, tmasks = (), (), (), (), ()
-        gain = ops.ones(7, ms.int32)  # normalized to gridspace gain
+        gain = ops.ones(7, ms.float32)  # normalized to gridspace gain
         ai = ops.tile(mnp.arange(na).view(-1, 1), (1, nt))  # shape: (na, nt)
         ai = ops.cast(ai, targets.dtype)
         targets = ops.concat((ops.tile(targets, (na, 1, 1)), ai[:, :, None]),
@@ -392,7 +393,8 @@ class ComputeLoss(nn.Cell):
 
         for i in range(self.nl):
             anchors, shape = self.anchors[i], p[i].shape
-            gain[2:6] = get_tensor(shape, targets.dtype)[[3, 2, 3, 2]]  # xyxy gain
+            updates = get_tensor(shape, ms.float32)[3, 2, 3, 2]
+            gain = self.TensorScatterUpdate(gain, self.indices, updates)
 
             # Match targets to anchors
             t = targets * gain  # shape(na,nt,7) # xywhn -> xywh

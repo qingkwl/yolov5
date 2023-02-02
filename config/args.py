@@ -6,7 +6,7 @@ def get_args_train():
     parser = argparse.ArgumentParser()
     parser.add_argument('--ms_strategy', type=str, default='StaticShape',
                         help='train strategy, StaticCell/StaticShape/MultiShape/DynamicShape')
-    parser.add_argument('--ms_mode', type=str, default='graph', help='train mode, graph/pynative')
+    parser.add_argument('--ms_mode', type=str, default='pynative', help='train mode, graph/pynative')
     parser.add_argument('--ms_amp_level', type=str, default='O0', help='amp level, O0/O1/O2')
     parser.add_argument('--ms_loss_scaler', type=str, default='none', help='train loss scaler, static/dynamic/none')
     parser.add_argument('--ms_loss_scaler_value', type=float, default=1.0, help='static loss scale value')
