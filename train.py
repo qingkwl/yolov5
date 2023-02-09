@@ -269,8 +269,7 @@ def train(hyp, opt):
     if opt.save_checkpoint or opt.run_eval:
         infer_model = copy.deepcopy(model) if opt.ema else model
         rect = False
-        val_batch_size = 32
-        val_dataloader, val_dataset, _ = create_dataloader(test_path, imgsz, val_batch_size, gs, opt,
+        val_dataloader, val_dataset, _ = create_dataloader(test_path, imgsz, batch_size, gs, opt,
                                                            epoch_size=1, pad=0.5, rect=rect,
                                                            rank=rank, rank_size=rank_size,
                                                            num_parallel_workers=4 if rank_size > 1 else 8,
