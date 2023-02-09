@@ -3,6 +3,7 @@ from mindspore import nn
 from mindspore import boost
 from mindspore import context
 from mindspore.ops import functional as F
+from mindspore.ops import composite as C
 from mindspore.common import dtype as mstype
 from mindspore.nn.wrap.cell_wrapper import TrainOneStepCell
 from mindspore.boost.boost_cell_wrapper import BoostTrainOneStepCell
@@ -10,6 +11,34 @@ from mindspore.nn.wrap.cell_wrapper import _TrainPipelineAccuStepCell, _pipeline
 from mindspore.nn.wrap.loss_scale import _TrainPipelineWithLossScaleCell
 from mindspore.train.amp import validator, _check_level, _check_kwargs, _config_level, \
     _do_keep_batchnorm_fp32, auto_mixed_precision, _add_loss_network, _get_pipeline_stages
+
+GRADIENT_CLIP_TYPE = 1
+GRADIENT_CLIP_VALUE = 10.0
+clip_grad = C.MultitypeFuncGraph("clip_grad")
+
+
+@clip_grad.register("Number", "Number", "Tensor")
+def _clip_grad(clip_type, clip_value, grad):
+    """
+    Clip gradients.
+
+    Inputs:
+        clip_type (int): The way to clip, 0 for 'value', 1 for 'norm'.
+        clip_value (float): Specifies how much to clip.
+        grad (tuple[Tensor]): Gradients.
+
+    Outputs:
+        tuple[Tensor], clipped gradients.
+    """
+    if clip_type not in (0, 1):
+        return grad
+    dt = F.dtype(grad)
+    if clip_type == 0:
+        new_grad = C.clip_by_value(grad, F.cast(F.tuple_to_array((-clip_value,)), dt),
+                                   F.cast(F.tuple_to_array((clip_value,)), dt))
+    else:
+        new_grad = nn.ClipByNorm()(grad, F.cast(F.tuple_to_array((clip_value,)), dt))
+    return new_grad
 
 
 class _BoostTrainPipelineAccuStepCell(_TrainPipelineAccuStepCell):
@@ -40,11 +69,12 @@ class _BoostTrainPipelineAccuStepCell(_TrainPipelineAccuStepCell):
 
 
 class _TrainOneStepCell(TrainOneStepCell):
-    def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0):
+    def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0, enable_clip_grad=False):
         super(_TrainOneStepCell, self).__init__(network, optimizer, sens=sens)
         self.ema = ema
         self.use_loss_scaler = False if amp_loss_scaler is None else True
         self.amp_loss_scaler = amp_loss_scaler
+        self.enable_clip_grad = enable_clip_grad
         print(f"[INFO] Enable loss scale: {self.use_loss_scaler}", flush=True)
 
     def construct(self, *inputs):
@@ -54,17 +84,20 @@ class _TrainOneStepCell(TrainOneStepCell):
         grads = self.grad_reducer(grads)
         if self.use_loss_scaler:
             grads = self.amp_loss_scaler.unscale(grads)
+        if self.enable_clip_grad:
+            grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
         loss = F.depend(loss, self.optimizer(grads))
         loss = F.depend(loss, self.ema.update())
         return loss
 
 
 class _BoostTrainOneStepCell(BoostTrainOneStepCell):
-    def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0):
+    def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0, enable_clip_grad=False):
         super(_BoostTrainOneStepCell, self).__init__(network, optimizer, sens)
         self.ema = ema
         self.use_loss_scaler = False if amp_loss_scaler is None else True
         self.amp_loss_scaler = amp_loss_scaler
+        self.enable_clip_grad = enable_clip_grad
         print(f"[INFO] Enable loss scale: {self.use_loss_scaler}", flush=True)
 
     def construct(self, *inputs):
@@ -85,6 +118,8 @@ class _BoostTrainOneStepCell(BoostTrainOneStepCell):
                 elif self.enable_adasum:
                     loss = F.depend(loss, self.adasum_process(loss, grads))
                 else:
+                    if self.enable_clip_grad:
+                        grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
                     loss = F.depend(loss, self.optimizer(grads))
 
         loss = F.depend(loss, self.ema.update())
