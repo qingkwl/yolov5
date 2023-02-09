@@ -324,6 +324,7 @@ class ComputeLoss(nn.Cell):
 
         # Losses
         for layer_index, pi in enumerate(p):  # layer index, layer predictions
+            pi = ops.cast(pi, ms.float32)
             tmask = tmasks[layer_index]
             b, a, gj, gi = ops.split(indices[layer_index] * tmask[None, :], 0, 4)  # image, anchor, gridy, gridx
             b, a, gj, gi = b.view(-1), a.view(-1), gj.view(-1), gi.view(-1)

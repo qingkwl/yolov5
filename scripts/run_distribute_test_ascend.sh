@@ -77,7 +77,7 @@ do
         --is_distributed=True \
         --img_size=640 \
         --conf=0.001 \
-        --iou_thres=0.60 \
+        --iou_thres=0.65 \
         --project="${eval_exp}/eval_results" \
         --batch_size=32 > log.txt 2>&1 &
     cd "${cur_dir}" || exit

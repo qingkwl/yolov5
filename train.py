@@ -234,6 +234,7 @@ def train(hyp, opt):
     # Model
     sync_bn = opt.sync_bn and context.get_context("device_target") == "Ascend" and rank_size > 1
     model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt)  # create
+    model.to_float(ms.float16)
     ema = EMA(model) if opt.ema else None
 
     pretrained = weights.endswith('.ckpt')

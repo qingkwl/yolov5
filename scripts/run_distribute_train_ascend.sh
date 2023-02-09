@@ -86,7 +86,7 @@ do
         --batch_size=256 \
         --img_size=640 \
         --conf_thres=0.001 \
-        --iou_thres=0.60 \
+        --iou_thres=0.65 \
         --run_eval=True \
         --eval_epoch_interval=10 \
         --project="${train_exp}/eval_results" > log.txt 2>&1 &
