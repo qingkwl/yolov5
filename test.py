@@ -244,7 +244,6 @@ def test(data,
     # Dataloader
     if dataloader is None or dataset is None:
         print("[INFO] enable rect", rect, flush=True)
-        batch_size = 1 if rect else batch_size
         task = opt.task if opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
         dataloader, dataset, per_epoch_size = create_dataloader(data[task], imgsz, batch_size, gs, opt,
                                                                 epoch_size=1, pad=0.5, rect=rect,
