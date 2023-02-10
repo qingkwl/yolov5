@@ -350,7 +350,8 @@ def train(hyp, opt):
 
     data_size = dataloader.get_dataset_size()
     jit = True if opt.ms_mode.lower() == "graph" else False
-    sink_process = ms.data_sink(train_step, dataloader, steps=data_size * epochs, sink_size=data_size, jit=jit)
+    jit = ms.JitConfig()
+    sink_process = ms.data_sink(train_step, dataloader, sink_size=data_size, jit_config=jit)
 
     for cur_epoch in range(resume_epoch, epochs):
         cur_epoch = cur_epoch + 1
