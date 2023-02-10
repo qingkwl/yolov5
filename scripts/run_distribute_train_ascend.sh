@@ -73,7 +73,7 @@ do
         --ms_grad_sens=1024 \
         --overflow_still_update=True \
         --clip_grad=False \
-        --sync_bn=True \
+        --sync_bn=False \
         --optimizer="momentum" \
         --cfg=$CONFIG_PATH \
         --data=$DATA_PATH \

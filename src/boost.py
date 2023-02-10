@@ -69,7 +69,7 @@ class _BoostTrainPipelineAccuStepCell(_TrainPipelineAccuStepCell):
 
 
 class _TrainOneStepCell(TrainOneStepCell):
-    def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0, enable_clip_grad=False):
+    def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0, enable_clip_grad=True):
         super(_TrainOneStepCell, self).__init__(network, optimizer, sens=sens)
         self.ema = ema
         self.use_loss_scaler = False if amp_loss_scaler is None else True
@@ -92,7 +92,7 @@ class _TrainOneStepCell(TrainOneStepCell):
 
 
 class _BoostTrainOneStepCell(BoostTrainOneStepCell):
-    def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0, enable_clip_grad=False):
+    def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0, enable_clip_grad=True):
         super(_BoostTrainOneStepCell, self).__init__(network, optimizer, sens)
         self.ema = ema
         self.use_loss_scaler = False if amp_loss_scaler is None else True
