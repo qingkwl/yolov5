@@ -263,7 +263,7 @@ def train(hyp, opt):
                                                             epoch_size=train_epoch_size,
                                                             hyp=hyp, augment=True, cache=opt.cache_images,
                                                             rect=opt.rect, rank_size=opt.rank_size, rank=opt.rank,
-                                                            num_parallel_workers=12 if rank_size > 1 else 8,
+                                                            num_parallel_workers=12,
                                                             image_weights=opt.image_weights, quad=opt.quad,
                                                             prefix=colorstr('train: '), model_train=True)
     if opt.save_checkpoint or opt.run_eval:
@@ -372,7 +372,6 @@ def train(hyp, opt):
             # Save Checkpoint
             model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
             ckpt_path = os.path.join(wdir, f"{model_name}_{cur_epoch}.ckpt")
-            print("save ckpt path:", ckpt_path, flush=True)
             ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
             ckpt_queue.append(ckpt_path)
             if ema:
@@ -380,6 +379,7 @@ def train(hyp, opt):
                 append_dict = {"updates": ema.updates, "epoch": cur_epoch}
                 save_ema(ema, ema_ckpt_path, append_dict)
                 ema_ckpt_queue.append(ema_ckpt_path)
+                print("save ckpt path:", ema_ckpt_path, flush=True)
             if opt.enable_modelarts:
                 sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
                 if ema:
