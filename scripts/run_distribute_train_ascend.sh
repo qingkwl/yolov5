@@ -41,7 +41,7 @@ export RANK_TABLE_FILE=$RANK_TABLE_FILE
 export MINDSPORE_HCCL_CONFIG_PATH=$RANK_TABLE_FILE
 
 cpus=$(grep -c "processor" /proc/cpuinfo)
-avg=$((cpus / RANK_SIZE))
+avg=$((cpus / DEVICE_NUM))
 gap=$((avg - 1))
 train_exp=$(get_work_dir "train_exp")
 train_exp=$(realpath "${train_exp}")
