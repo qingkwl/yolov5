@@ -13,11 +13,11 @@ from src.network.common import parse_model, Detect, Segment
 
 
 def initialize_weights(model):
-    for m in model.cells():
-        t = type(m)
-        if t is nn.Conv2d:
+    for _, m in model.cells_and_names():
+        classname = m.__class__.__name__
+        if classname == "Conv2d":
             pass  # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-        elif t in (nn.BatchNorm2d, nn.SyncBatchNorm):
+        elif classname in ("BatchNorm2d", "SyncBatchNorm"):
             m.eps = 1e-3
             m.momentum = 0.03
 

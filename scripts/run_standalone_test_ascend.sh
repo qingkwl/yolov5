@@ -56,6 +56,6 @@ python test.py \
   --img_size=640 \
   --conf=0.001 \
   --rect=False \
-  --iou_thres=0.60 \
+  --iou_thres=0.65 \
   --batch_size=32 > log.txt 2>&1 &
 cd ..

@@ -31,9 +31,9 @@ def get_args_train():
     parser.add_argument('--img_size', nargs='+', type=int, default=[640, 640], help='[train, test] image sizes')
 
     parser.add_argument('--save_checkpoint', type=ast.literal_eval, default=True, help='save checkpoint')
-    parser.add_argument('--start_save_epoch', type=int, default=1, help='epoch to start save checkpoint')
-    parser.add_argument('--save_interval', type=int, default=1, help='the interval epoch of save checkpoint')
-    parser.add_argument('--max_ckpt_num', type=int, default=10,
+    parser.add_argument('--start_save_epoch', type=int, default=100, help='epoch to start save checkpoint')
+    parser.add_argument('--save_interval', type=int, default=5, help='the interval epoch of save checkpoint')
+    parser.add_argument('--max_ckpt_num', type=int, default=40,
                         help='the maximum number of save checkpoint, delete previous checkpoints if '
                              'the number of saved checkpoints are larger than this value')
 

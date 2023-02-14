@@ -237,7 +237,7 @@ def test(data,
 
     # Half
     if half_precision:
-        ms.amp.auto_mixed_precision(model, amp_level="O2")
+        model.to_float(ms.float16)
 
     model.set_train(False)
 
@@ -279,7 +279,7 @@ def test(data,
     for batch_i, meta_data in enumerate(data_loader):
         img, targets, paths, shapes = meta_data["img"], meta_data["label_out"], \
                                       meta_data["img_files"], meta_data["shapes"]
-        img = img.astype(np.float32) / 255.0  # 0 - 255 to 0.0 - 1.0
+        img = img / 255.0  # 0 - 255 to 0.0 - 1.0
         img_tensor = Tensor.from_numpy(img)
         targets_tensor = Tensor.from_numpy(targets)
         if half_precision:
