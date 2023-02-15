@@ -35,3 +35,5 @@ copy_paste: 0.1  # segment copy-paste (probability)
 paste_in: 0.0  # image copy paste (probability), use 0 for faster training
 max_box_per_img: 160 # label mask
 enable_clip_grad: True
+bn_eps: 0.00001
+bn_momentum: 0.1

@@ -235,7 +235,7 @@ def train(hyp, opt):
 
     # Model
     sync_bn = opt.sync_bn and context.get_context("device_target") == "Ascend" and rank_size > 1
-    model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt)  # create
+    model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt, hyp=hyp)  # create
     model.to_float(ms.float16)
     ema = EMA(model) if opt.ema else None
 
@@ -383,7 +383,7 @@ def train(hyp, opt):
                 save_ema(ema, ema_ckpt_path, append_dict)
                 ema_ckpt_queue.append(ema_ckpt_path)
                 print("save ckpt path:", ema_ckpt_path, flush=True)
-        if opt.enable_modelarts:
+            if opt.enable_modelarts:
                 sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
                 if ema:
                     sync_data(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
