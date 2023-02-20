@@ -25,7 +25,7 @@ def get_group_param(model):
             pg2.append(v.beta)  # biases
         elif hasattr(v, 'bias') and isinstance(v.bias, ms.Parameter):
             pg2.append(v.bias)
-        if isinstance(v, nn.BatchNorm2d):
+        if isinstance(v, nn.BatchNorm2d) or isinstance(v, nn.SyncBatchNorm):
             pg1.append(v.gamma)  # no decay
         elif hasattr(v, 'weight') and isinstance(v.weight, ms.Parameter):
             pg0.append(v.weight)  # apply decay
@@ -50,7 +50,7 @@ def get_lr(opt, hyp, per_epoch_size, resume_epoch):
         raise NotImplementedError
 
     if linear_lr:
-        lf = lambda x: (1 - x / (total_epoch - 1)) * (1.0 - lrf) + lrf  # linear
+        lf = lambda x: (1 - x / total_epoch) * (1.0 - lrf) + lrf  # linear
     else:
         lf = one_cycle(1, lrf, total_epoch)  # cosine 1->hyp['lrf'] #1 -> 0.1
 

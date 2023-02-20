@@ -12,14 +12,14 @@ from src.autoanchor import check_anchor_order
 from src.network.common import parse_model, Detect, Segment
 
 
-def initialize_weights(model):
-    for m in model.cells():
-        t = type(m)
-        if t is nn.Conv2d:
+def initialize_weights(model, hyp):
+    for _, m in model.cells_and_names():
+        classname = m.__class__.__name__
+        if classname == "Conv2d":
             pass  # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-        elif t in (nn.BatchNorm2d, nn.SyncBatchNorm):
-            m.eps = 1e-3
-            m.momentum = 0.03
+        elif classname in ("BatchNorm2d", "SyncBatchNorm"):
+            m.eps = hyp["bn_eps"]
+            m.momentum = hyp["bn_momentum"]
 
 
 @ops.constexpr
@@ -64,7 +64,7 @@ def _get_new_size(img_shape, gs, imgsz):
 
 class Model(nn.Cell):
     def __init__(self, cfg='yolor-csp-c.yaml', ch=3, nc=None, anchors=None, sync_bn=False,
-                 opt=None):  # model, input channels, number of classes
+                 opt=None, hyp=None):  # model, input channels, number of classes
         super(Model, self).__init__()
         self.traced = False
         self.multi_scale = False
@@ -116,7 +116,7 @@ class Model(nn.Cell):
             self.imgsz, _ = [check_img_size(x, self.gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
         # Init weights, biases
-        initialize_weights(self.model)
+        initialize_weights(self.model, hyp)
 
     def construct(self, x, augment=False):
         if self.multi_scale and self.training:

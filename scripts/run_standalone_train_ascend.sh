@@ -38,13 +38,6 @@ cd "${train_exp}" || exit
 env > env.log
 
 python train.py \
-        --ms_strategy="StaticShape" \
-        --ms_amp_level="O0" \
-        --ms_loss_scaler="static" \
-        --ms_loss_scaler_value=1024 \
-        --ms_optim_loss_scale=1 \
-        --ms_grad_sens=1024 \
-        --overflow_still_update=True \
         --clip_grad=False \
         --optimizer="momentum" \
         --cfg=$CONFIG_PATH \
@@ -54,8 +47,7 @@ python train.py \
         --profiler=False \
         --accumulate=False \
         --epochs=300 \
-        --recompute=False \
-        --recompute_layers=5 \
+        --iou_thres=0.65 \
         --batch_size=32  > log.txt 2>&1 &
 cd ..
 

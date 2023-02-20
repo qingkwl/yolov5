@@ -103,7 +103,8 @@ def load_checkpoint_to_yolo(model, ckpt_path, resume):
     return resume_epoch
 
 
-def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None, sens=1.0, rank_size=1):
+def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
+                         rank_size=1, sens=1.0, enable_clip_grad=True):
     class NetworkWithLoss(nn.Cell):
         def __init__(self, model, compute_loss, rank_size):
             super(NetworkWithLoss, self).__init__()
@@ -129,8 +130,9 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None, 
 
     print(f"[INFO] rank_size: {rank_size}", flush=True)
     net_with_loss = NetworkWithLoss(model, compute_loss, rank_size)
-    train_step = build_train_network(network=net_with_loss, ema=ema, optimizer=optimizer, level='O0',
-                                     boost_level='O1', amp_loss_scaler=loss_scaler, sens=sens)
+    train_step = build_train_network(network=net_with_loss, ema=ema, optimizer=optimizer,
+                                     level='O0', boost_level='O1', amp_loss_scaler=loss_scaler,
+                                     sens=sens, enable_clip_grad=enable_clip_grad)
     return train_step
 
 
@@ -233,7 +235,7 @@ def train(hyp, opt):
 
     # Model
     sync_bn = opt.sync_bn and context.get_context("device_target") == "Ascend" and rank_size > 1
-    model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt)  # create
+    model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt, hyp=hyp)  # create
     model.to_float(ms.float16)
     ema = EMA(model) if opt.ema else None
 
@@ -333,8 +335,9 @@ def train(hyp, opt):
         loss_scaler = None
 
     if opt.ms_strategy == "StaticShape":
-        train_step = create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
-                                          sens=opt.ms_grad_sens, rank_size=opt.rank_size)
+        train_step = create_train_network(model, compute_loss, ema, optimizer,
+                                          loss_scaler=None, rank_size=opt.rank_size,
+                                          sens=opt.ms_grad_sens, enable_clip_grad=hyp["enable_clip_grad"])
     else:
         raise NotImplementedError
 
@@ -349,12 +352,12 @@ def train(hyp, opt):
     jit = True if opt.ms_mode.lower() == "graph" else False
     sink_process = ms.data_sink(train_step, dataloader, steps=data_size * epochs, sink_size=data_size, jit=jit)
 
-    for cur_epoch in range(epochs):
+    for cur_epoch in range(resume_epoch, epochs):
         cur_epoch = cur_epoch + 1
         start_train_time = time.time()
         loss = sink_process()
         end_train_time = time.time()
-        print(f"Epoch {epochs}/{cur_epoch}, step {data_size}, "
+        print(f"Epoch {epochs-resume_epoch}/{cur_epoch}, step {data_size}, "
               f"epoch time {((end_train_time - start_train_time) * 1000):.2f} ms, "
               f"step time {((end_train_time - start_train_time) * 1000 / data_size):.2f} ms, "
               f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
