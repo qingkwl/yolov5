@@ -438,7 +438,7 @@ if __name__ == '__main__':
     if opt.is_distributed:
         init()
         rank, rank_size, parallel_mode = get_rank(), get_group_size(), ParallelMode.DATA_PARALLEL
-    context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size)
+        context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size, all_reduce_fusion_config=[10, 70, 130, 190, 250, 310])
 
     opt.total_batch_size = opt.batch_size
     opt.rank_size = rank_size
