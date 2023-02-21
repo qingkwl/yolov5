@@ -181,7 +181,7 @@ class LoadImagesAndLabels:  # for training/testing
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
             try:
                 assert cache['version'] == self.cache_version  # matches current version
-                assert cache['hash'] == get_hash(self.label_files + self.img_file)  # identical hash
+                assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
             except Exception as e:
                 exit(f"[ERROR] {e}, please remove cache file in dataset path: rm -f {Path(self.path).parent}/*.cache*")
         except Exception:
