@@ -225,7 +225,7 @@ def test(data,
         # Hyperparameters
         with open(opt.hyp) as f:
             hyp = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
-        model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), sync_bn=False)  # create
+        model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), sync_bn=False, hyp=hyp)  # create
         ckpt_path = weights
         load_checkpoint_to_yolo(model, ckpt_path)
         gs = max(int(ops.cast(model.stride, ms.float16).max()), 32)  # grid size (max stride)
