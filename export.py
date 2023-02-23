@@ -64,5 +64,6 @@ def run_export(opt):
 
 
 if __name__ == '__main__':
-    opt = get_args_export()
+    parser = get_args_export()
+    opt = parser.parse_args()
     run_export(opt)

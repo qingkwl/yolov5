@@ -419,7 +419,8 @@ def train(hyp, opt):
 
 
 if __name__ == '__main__':
-    opt = get_args_train()
+    parser = get_args_train()
+    opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('coco.yaml')
     # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files

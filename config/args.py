@@ -99,8 +99,7 @@ def get_args_train():
     parser.add_argument('--data_url', type=str, default='', help='ModelArts: obs path to dataset folder')
     parser.add_argument('--train_url', type=str, default='', help='ModelArts: obs path to dataset folder')
     parser.add_argument('--data_dir', type=str, default='/cache/data/', help='ModelArts: obs path to dataset folder')
-    opt = parser.parse_args()
-    return opt
+    return parser
 
 
 def get_args_test():
@@ -136,8 +135,7 @@ def get_args_test():
     parser.add_argument('--result_view', type=ast.literal_eval, default=False, help='view the eval result')
     parser.add_argument('--recommend_threshold', type=ast.literal_eval, default=False,
                         help='recommend threshold in eval')
-    opt = parser.parse_args()
-    return opt
+    return parser
 
 
 def get_args_export():
@@ -155,6 +153,4 @@ def get_args_export():
 
     # preprocess
     parser.add_argument('--output_path', type=str, default='./', help='output preprocess data path')
-
-    opt = parser.parse_args()
-    return opt
+    return parser
