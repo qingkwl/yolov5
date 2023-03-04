@@ -67,7 +67,6 @@ do
 
     taskset -c $cmdopt python train.py \
         --weights=$WEIGHTS \
-        --clip_grad=False \
         --sync_bn=False \
         --optimizer="momentum" \
         --cfg=$CONFIG_PATH \

@@ -11,7 +11,7 @@ def get_args_train():
     parser.add_argument('--ms_loss_scaler', type=str, default='none', help='train loss scaler, static/dynamic/none')
     parser.add_argument('--ms_loss_scaler_value', type=float, default=1.0, help='static loss scale value')
     parser.add_argument('--ms_optim_loss_scale', type=float, default=1.0, help='optimizer loss scale')
-    parser.add_argument('--ms_grad_sens', type=float, default=1.0, help='gard sens')
+    parser.add_argument('--ms_grad_sens', type=float, default=1024, help='gard sens')
     parser.add_argument('--accumulate', type=ast.literal_eval, default=False, help='accumulate gradient')
     parser.add_argument('--overflow_still_update', type=ast.literal_eval, default=False, help='overflow still update')
     parser.add_argument('--clip_grad', type=ast.literal_eval, default=False, help='clip grad')
