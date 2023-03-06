@@ -79,6 +79,7 @@ class _TrainOneStepCell(TrainOneStepCell):
         self.use_loss_scaler = False if amp_loss_scaler is None else True
         self.amp_loss_scaler = amp_loss_scaler
         self.enable_clip_grad = enable_clip_grad
+        self.hyper_map = ops.HyperMap()
         print(f"[INFO] Enable loss scale: {self.use_loss_scaler}", flush=True)
         print(f"[INFO] Enable enable_clip_grad: {self.enable_clip_grad}", flush=True)
 
