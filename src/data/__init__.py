@@ -31,7 +31,7 @@ _dataset_arg_mapping: dict[str, Type[BaseArgs]] = {
 }
 
 # PROJECT_ROOT/config
-DATA_CONFIG_ROOT = Path(__file__).parent.parent.parent / "config" / "data_test"
+DATA_CONFIG_ROOT = Path(__file__).parent.parent.parent / "config" / "data_conversion"
 
 
 def merge_args(config):

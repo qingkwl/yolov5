@@ -40,7 +40,7 @@ def get_args():
     parser.add_argument("--split", type=ast.literal_eval, default=False, help="Whether split dataset if necessary.")
     # command = "--src_format labelme --dst_format yolo"
     # command += " --split=True --dst_root=/mnt/d/BaiduNetdiskDownload/labelme2yolo_4"
-    # command += " --dst_cfg=/mnt/d/Code/yolov5/config/data_test/yolo_test.yaml"
+    # command += " --dst_cfg=/mnt/d/Code/yolov5/config/data_conversion/yolo_test.yaml"
     # command += " --src_root --dst_root  --src_cfg  --dst_cfg "
     # if not command:
     #     args = parser.parse_args()
