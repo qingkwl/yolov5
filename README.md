@@ -4,6 +4,8 @@
 - [YOLOv5 Description](#YOLOv5-description)
 - [Model Architecture](#model-architecture)
 - [Dataset](#dataset)
+  - [Dataset Download](#Dataset-Download)
+  - [Dataset Conversion](#Dataset-Conversion)
 - [Quick Start](#quick-start)
 - [Script Description](#script-description)
     - [Script and Sample Code](#script-and-sample-code)
@@ -15,9 +17,7 @@
         - [Evaluation](#evaluation)
 - [Model Description](#model-description)
 - [Performance](#performance)  
-    - [Evaluation Performance](#evaluation-performance)
-    - [Inference Performance](#inference-performance)
-    - [Transfer Learning](#transfer-learning)
+
 - [Description of Random Situation](#description-of-random-situation)
 - [ModelZoo Homepage](#modelzoo-homepage)
 
@@ -47,11 +47,29 @@ stride s = 2x2; Within the PANet and SPP, 1x1, 5x5, 9x9, 13x13 max poolings are 
 
 # [Dataset](#contents)
 
-Dataset used: [COCO2017](<https://cocodataset.org/#download>)
+## Dataset Download
+Dataset: 
+- Raw data
+  - [Train set](http://images.cocodataset.org/zips/train2017.zip)
+  - [Validation set](http://images.cocodataset.org/zips/val2017.zip)
+  - [Test set](http://images.cocodataset.org/zips/test2017.zip)
+- YOLO format labels [coco2017labels](https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels.zip)
+- YOLO format segmentation labels [coco2017labels-segments](https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels-segments.zip)
 
-Note that you can run the scripts with **COCO2017** or any other datasets with the same format as MS COCO Annotation. 
-But we do suggest user to use MS COCO dataset to experience our model.
+Download the raw images data, then download the labels files according to target model:
+- YOLOv5n：YOLO format labels
+- YOLOv5s：YOLO format labels
+- YOLOv5m：YOLO format segmentation labels
+- YOLOv5l：YOLO format segmentation labels
+- YOLOv5x：YOLO format segmentation labels
 
+## Dataset Conversion
+If you want to use customized data with coco or labelme format, you can use conversion script to convert them to YOLO format.
+
+Conversion steps:
+1. Change directory to `config/data_conversion`. The names of the files in this folder stand for configs of corresponding dataset.
+2. Modify the config files of the original format and the conversion target format.
+3. Afer edit of config files, run `convert_data.py` script. For example, `python convert_data.py coco yolo` means convert dataset from coco format to yolo.
 
 # [Quick Start](#contents)
 
@@ -138,8 +156,13 @@ yolov5
 │   ├── data
 │   │   ├── coco.yaml                              // configs about dataset
 │   │   └── hyp.scratch-low.yaml                   // configs about hyperparameters
+│   ├── data_conversion
+│   │   ├── coco.yaml                              // config of coco format dataset 
+│   │   ├── labelme.yaml                           // config of labelme format dataset
+│   │   └── yolo.yaml                              // config of yolo format dataset
 │   └── network
 │       └── yolov5s.yaml                           // configs about model architecture
+├── convert_data.py                                // convert dataset format
 ├── export.py
 ├── preprocess.py
 ├── scripts
@@ -313,10 +336,10 @@ The above python command will run in the background. You can view the results th
 
 ## [Performance](#contents)
 
-### Evaluation Performance
-
-TO BE DONE.
-
-### Inference Performance
-
-TO BE DONE.
+| Model   | size<br><sup>(pixels) | mAP<sup>val<br>50-95<br>rect=True | mAP<sup>val<br>50<br>rect=True | mAP<sup>val<br>50-95<br>rect=False | mAP<sup>val<br>50<br>rect=False | Epoch Time(s) |
+|---------|-----------------------|-----------------------------------|--------------------------------|------------------------------------|---------------------------------|---------------|
+| YOLOv5n | 640                   |                                   |                                |                                    |                                 | 66            |
+| YOLOv5s | 640                   | 0.375                             | 0.572                          | 0.373                              | 0.57                            | 79            |
+| YOLOv5m | 640                   | 0.452                             | 0.638                          | 0.451                              | 0.636                           | 133           |
+| YOLOv5l | 640                   |                                   |                                |                                    |                                 | 163           |
+| YOLOv5x | 640                   |                                   |                                |                                    |                                 | 221           |

@@ -1,5 +1,5 @@
 # YOLOArgs
-root: "/mnt/d/BaiduNetdiskDownload/labelme2yolo"     # Data root directory path. Absolute path.
+root: "/Download/labelme2yolo"     # Data root directory path. Absolute path.
 train_anno: "train2017.txt"   # Directory containing training images. Relative path to 'root'.
 val_anno: "val2017.txt"       # Directory containing validation images. Relative path to 'root'.
 test_anno: ""             # Optional. Directory containing test images. Relative path to 'root'.
@@ -20,3 +20,8 @@ names: [ 'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', '
          'hair drier', 'toothbrush' ]
 # or text file path containing categories information. One line for one category. Relative path to 'root'.
 # names: "names.txt"
+
+# root
+# ├── train_anno
+# ├── test_anno
+# └── val_anno

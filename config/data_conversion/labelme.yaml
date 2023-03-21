@@ -1,6 +1,11 @@
 # LabelmeArgs
-root: "/mnt/d/BaiduNetdiskDownload/LabelmeData"              # Data root directory path. Absolute path.
+root: "/Download/LabelmeData"              # Data root directory path. Absolute path.
 train_dir: "train"                    # Directory containing training images. Relative path to 'root'.
 val_dir: "val"                        # Directory containing validation images. Relative path to 'root'.
 test_dir: ""                      # Optional. Directory containing test images. Relative path to 'root'.
 data_dir: "data"                          # Optional. Directory containing all images. Relative path to 'root'.
+
+# root
+# ├── train_dir
+# ├── test_dir
+# └── val_dir

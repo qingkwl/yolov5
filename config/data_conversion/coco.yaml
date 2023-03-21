@@ -1,5 +1,5 @@
 # COCOArgs
-root: "/mnt/d/BaiduNetdiskDownload/labelme2coco"                     # Data root directory path. Absolute path.
+root: "/Download/labelme2coco"                     # Data root directory path. Absolute path.
 train_dir: "train2017"                    # Directory containing training images. Relative path to 'root'.
 val_dir: "val2017"                        # Directory containing validation images. Relative path to 'root'.
 test_dir: "test2017"                      # Optional. Directory containing test images. Relative path to 'root'.
@@ -12,3 +12,22 @@ data_anno: "instances_data2017.json"                             # Optional. All
 split_ratio: 0.8                          # Split ratio. Valid when 'data_anno' is set.
 shuffle: False                            # Shuffle. Valid when 'data_anno' is set. Shuffle when split data.
 seed: 100                                   # Random seed used to shuffle data. Valid when 'shuffle' is True.
+
+
+# root
+# ├── anno_dir
+# │   ├── captions_train2017.json
+# │   ├── captions_val2017.json
+# │   ├── instances_train2017.json
+# │   ├── instances_val2017.json
+# │   ├── person_keypoints_train2017.json
+# │   └── person_keypoints_val2017.json
+# ├── test_dir
+# │   ├── img00000.jpg
+# |   └── ...
+# ├── train_dir
+# │   ├── img00001.jpg
+# |   └── ...
+# └── val_dir
+#     ├── img00002.jpg
+#     └── ...
