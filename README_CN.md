@@ -1,9 +1,16 @@
+TODO:
+更新性能信息，精度，性能
+更新代码结构，添加新增代码文件说明
+更新数据集说明，更新转换工具使用方法
+
 # 目录
 
 - [目录](#目录)
 - [YOLOv5说明](#YOLOv5说明)
 - [模型架构](#模型架构)
 - [数据集](#数据集)
+  - [数据下载](#数据下载)
+  - [数据转换](#数据转换)
 - [快速入门](#快速入门)
 - [脚本说明](#脚本说明)
     - [脚本和示例代码](#脚本和示例代码)
@@ -14,9 +21,7 @@
     - [推理过程](#推理过程)
         - [推理](#推理)
 - [模型说明](#模型说明)
-- [性能](#性能)  
-    - [评估性能](#评估性能)
-    - [推理性能](#推理性能)
+- [性能](#性能)
 
 
 # [YOLOv5说明](#目录)
@@ -42,9 +47,29 @@ CSPDarknet53 包含了 5 个 CSP 模块，CSP 模块中使用了 kernel size 为
 
 # [数据集](#目录)
 
-数据集: [COCO2017](<https://cocodataset.org/#download>)
+## 数据下载
+数据集: 
+- 原始数据
+  - [训练集](http://images.cocodataset.org/zips/train2017.zip)
+  - [验证集](http://images.cocodataset.org/zips/val2017.zip)
+  - [测试集](http://images.cocodataset.org/zips/test2017.zip)
+- YOLO 格式标注 [coco2017labels](https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels.zip)
+- YOLO 格式分割标注 [coco2017labels-segments](https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels-segments.zip)
 
-您可以使用 **COCO2017** 或者其他具有 COCO 格式的数据集来运行我们提供的脚本。但是我们建议您使用 COCO 数据集来尝试我们的模型。
+下载原始数据集的图片，并根据模型的不同下载对应的标注文件：
+- YOLOv5n：YOLO 格式标注
+- YOLOv5s：YOLO 格式标注
+- YOLOv5m：YOLO 格式分割标注
+- YOLOv5l：YOLO 格式分割标注
+- YOLOv5x：YOLO 格式分割标注
+
+## 数据转换
+如果使用自定义的 COCO 格式或者 labelme 格式的数据集，可以使用我们提供的转换脚本转换成 YOLO 格式。
+
+转换步骤：
+1. 进入 `config/data_conversion` 目录。目录下文件名称对应数据集格式，如 `coco.yaml` 表示 COCO 格式数据集的配置；
+2. 配置数据原格式和目标转换格式对应的配置文件；
+3. 配置文件编辑完成后，运行 `convert_data.py` 脚本，如 `python convert_data.py coco yolo` 表示将 COCO 数据格式转换为 YOLO 格式。
 
 # [快速入门](#目录)
 
@@ -131,8 +156,13 @@ yolov5
 │   ├── data
 │   │   ├── coco.yaml                              // configs about dataset
 │   │   └── hyp.scratch-low.yaml                   // configs about hyperparameters
+│   ├── data_conversion
+│   │   ├── coco.yaml                              // config of coco format dataset 
+│   │   ├── labelme.yaml                           // config of labelme format dataset
+│   │   └── yolo.yaml                              // config of yolo format dataset
 │   └── network
 │       └── yolov5s.yaml                           // configs about model architecture
+├── convert_data.py                                // convert dataset format
 ├── export.py
 ├── preprocess.py
 ├── scripts
@@ -305,10 +335,10 @@ bash run_standalone_test_ascend.sh --w path/to/weights.ckpt -c ../config/network
 
 ## [性能](#目录)
 
-### 评估性能
-
-TO BE DONE.
-
-### 推理性能
-
-TO BE DONE.
+| Model   | size<br><sup>(pixels) | mAP<sup>val<br>50-95<br>rect=True | mAP<sup>val<br>50<br>rect=True | mAP<sup>val<br>50-95<br>rect=False | mAP<sup>val<br>50<br>rect=False | Epoch Time(s) |
+|---------|-----------------------|-----------------------------------|--------------------------------|------------------------------------|---------------------------------|---------------|
+| YOLOv5n | 640                   |                                   |                                |                                    |                                 | 66            |
+| YOLOv5s | 640                   | 0.375                             | 0.572                          | 0.373                              | 0.57                            | 79            |
+| YOLOv5m | 640                   | 0.452                             | 0.638                          | 0.451                              | 0.636                           | 133           |
+| YOLOv5l | 640                   |                                   |                                |                                    |                                 | 163           |
+| YOLOv5x | 640                   |                                   |                                |                                    |                                 | 221           |
