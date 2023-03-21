@@ -1,12 +1,14 @@
-import copy
-from collections import deque
-
-import yaml
 import os
 import random
 import time
-import numpy as np
+import copy
+from collections import deque
 from pathlib import Path
+from contextlib import nullcontext
+
+import yaml
+import numpy as np
+
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
@@ -352,69 +354,84 @@ def train(hyp, opt):
     jit = True if opt.ms_mode.lower() == "graph" else False
     sink_process = ms.data_sink(train_step, dataloader, steps=data_size * epochs, sink_size=data_size, jit=jit)
 
-    for cur_epoch in range(resume_epoch, epochs):
-        cur_epoch = cur_epoch + 1
-        start_train_time = time.time()
-        loss = sink_process()
-        end_train_time = time.time()
-        print(f"Epoch {epochs-resume_epoch}/{cur_epoch}, step {data_size}, "
-              f"epoch time {((end_train_time - start_train_time) * 1000):.2f} ms, "
-              f"step time {((end_train_time - start_train_time) * 1000 / data_size):.2f} ms, "
-              f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
-              f"lbox loss: {train_step.network.lbox_loss.asnumpy():.4f}, ",
-              f"lobj loss: {train_step.network.lobj_loss.asnumpy():.4f}, ",
-              f"lcls loss: {train_step.network.lcls_loss.asnumpy():.4f}.", flush=True)
+    summary_dir = f"{opt.summary_dir}/rank_{rank}"
+    summary_interval = opt.summary_interval   # Unit: epoch
+    steps_per_epoch = data_size
+    with ms.SummaryRecord(summary_dir) if opt.summary else nullcontext() as summary_record:
+        for cur_epoch in range(resume_epoch, epochs):
+            cur_epoch = cur_epoch + 1
+            start_train_time = time.time()
+            loss = sink_process()
+            end_train_time = time.time()
+            print(f"Epoch {epochs-resume_epoch}/{cur_epoch}, step {data_size}, "
+                  f"epoch time {((end_train_time - start_train_time) * 1000):.2f} ms, "
+                  f"step time {((end_train_time - start_train_time) * 1000 / data_size):.2f} ms, "
+                  f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
+                  f"lbox loss: {train_step.network.lbox_loss.asnumpy():.4f}, "
+                  f"lobj loss: {train_step.network.lobj_loss.asnumpy():.4f}, "
+                  f"lcls loss: {train_step.network.lcls_loss.asnumpy():.4f}.", flush=True)
 
-        if opt.profiler and (cur_epoch == run_profiler_epoch):
-            break
+            if opt.profiler and (cur_epoch == run_profiler_epoch):
+                break
 
-        def is_save_epoch():
-            return (cur_epoch >= opt.start_save_epoch) and (cur_epoch % opt.save_interval == 0)
+            def is_save_epoch():
+                return (cur_epoch >= opt.start_save_epoch) and (cur_epoch % opt.save_interval == 0)
 
-        if opt.save_checkpoint and (rank % 8 == 0) and is_save_epoch():
-            # Save Checkpoint
-            model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
-            ckpt_path = os.path.join(wdir, f"{model_name}_{cur_epoch}.ckpt")
-            ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
-            ckpt_queue.append(ckpt_path)
-            if ema:
-                ema_ckpt_path = os.path.join(wdir, f"EMA_{model_name}_{cur_epoch}.ckpt")
-                append_dict = {"updates": ema.updates, "epoch": cur_epoch}
-                save_ema(ema, ema_ckpt_path, append_dict)
-                ema_ckpt_queue.append(ema_ckpt_path)
-                print("save ckpt path:", ema_ckpt_path, flush=True)
-            if opt.enable_modelarts:
-                sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
-                if ema:
-                    sync_data(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
-
-        # Evaluation
-        def is_eval_epoch():
-            return cur_epoch == opt.eval_start_epoch or \
-                   ((cur_epoch >= opt.eval_start_epoch) and (cur_epoch % opt.eval_epoch_interval) == 0)
-
-        if opt.run_eval and is_eval_epoch():
-            eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
-            mean_ap = eval_results[3]
-            if (rank % 8 == 0) and (mean_ap > best_map):
-                best_map = mean_ap
-                print(f"[INFO] Best result: Best mAP [{best_map}] at epoch [{cur_epoch}]", flush=True)
-                # save best checkpoint
-                model_name = Path(opt.cfg).stem  # delete ".yaml"
-                ckpt_path = os.path.join(wdir, f"{model_name}_best.ckpt")
+            if opt.save_checkpoint and (rank % 8 == 0) and is_save_epoch():
+                # Save Checkpoint
+                model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
+                ckpt_path = os.path.join(wdir, f"{model_name}_{cur_epoch}.ckpt")
                 ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
+                ckpt_queue.append(ckpt_path)
                 if ema:
-                    ema_ckpt_path = os.path.join(wdir, f"EMA_{model_name}_best.ckpt")
+                    ema_ckpt_path = os.path.join(wdir, f"EMA_{model_name}_{cur_epoch}.ckpt")
                     append_dict = {"updates": ema.updates, "epoch": cur_epoch}
                     save_ema(ema, ema_ckpt_path, append_dict)
+                    ema_ckpt_queue.append(ema_ckpt_path)
+                    print("save ckpt path:", ema_ckpt_path, flush=True)
                 if opt.enable_modelarts:
                     sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
                     if ema:
                         sync_data(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
-                map_str_path = os.path.join(wdir, f"{model_name}_{cur_epoch}_map.txt")
-                coco_map_table_str = eval_results[-1]
-                with open(map_str_path, 'w') as file:
-                    file.write(f"COCO API:\n{coco_map_table_str}\n")
+
+            # Evaluation
+            def is_eval_epoch():
+                return cur_epoch == opt.eval_start_epoch or \
+                       ((cur_epoch >= opt.eval_start_epoch) and (cur_epoch % opt.eval_epoch_interval) == 0)
+
+            if opt.run_eval and is_eval_epoch():
+                eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
+                mean_ap = eval_results[3]
+                if opt.summary and summary_record is not None:
+                    summary_record.add_value('scalar', 'map', ms.Tensor(mean_ap))
+                    summary_record.record(cur_epoch * steps_per_epoch)
+                if rank % 8 == 0:
+                    model_name = Path(opt.cfg).stem  # delete ".yaml" suffix
+                    map_str_path = os.path.join(wdir, f"{model_name}_{cur_epoch}_map.txt")
+                    coco_map_table_str = eval_results[-1]
+                    with open(map_str_path, 'w') as file:
+                        file.write(f"COCO API:\n{coco_map_table_str}\n")
+                    if mean_ap > best_map:
+                        best_map = mean_ap
+                        print(f"[INFO] Best result: Best mAP [{best_map}] at epoch [{cur_epoch}]", flush=True)
+                        # save the best checkpoint
+                        ckpt_path = os.path.join(wdir, f"{model_name}_best.ckpt")
+                        ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
+                        if ema:
+                            ema_ckpt_path = os.path.join(wdir, f"EMA_{model_name}_best.ckpt")
+                            append_dict = {"updates": ema.updates, "epoch": cur_epoch}
+                            save_ema(ema, ema_ckpt_path, append_dict)
+                        if opt.enable_modelarts:
+                            sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
+                            if ema:
+                                sync_data(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
+
+            if opt.summary and (cur_epoch % summary_interval == 0) and summary_record is not None:
+                summary_record.add_value('scalar', 'loss', loss / opt.batch_size)
+                summary_record.add_value('scalar', 'lbox', train_step.network.lbox_loss)
+                summary_record.add_value('scalar', 'lobj', train_step.network.lobj_loss)
+                summary_record.add_value('scalar', 'lcls', train_step.network.lcls_loss)
+                summary_record.record(cur_epoch * steps_per_epoch)
     return 0
 
 
