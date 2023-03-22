@@ -74,6 +74,12 @@ def get_args_train():
                         help='Freeze layers: backbone of yolov5, first3=0 1 2')
     parser.add_argument('--v5_metric', type=ast.literal_eval, default=False,
                         help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--summary', type=ast.literal_eval, default=False,
+                        help='Whether use SummaryRecord to log intermediate data')
+    parser.add_argument('--summary_dir', type=str, default="summary",
+                        help='Folder to save summary files with project/summary_dir structure')
+    parser.add_argument('--summary_interval', type=int, default=1,
+                        help='Epoch interval to save summary files')  # Unit: epoch
 
     # args for evaluatation
     parser.add_argument('--run_eval', type=ast.literal_eval, default=True,
