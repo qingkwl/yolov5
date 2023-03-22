@@ -1,13 +1,47 @@
+import codecs
 import cv2
 import math
 import matplotlib
 import random
+import contextlib
+import pandas as pd
+import seaborn as sn
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from src.general import xywh2xyxy, xyxy2xywh
+from src.utils import threaded, TryExcept
+from src.loggers.default import get_logger
+
+LOGGER = get_logger()
+
+# Settings
+matplotlib.rc('font', **{'size': 11})
+matplotlib.use('Agg')  # for writing to files only
+
+
+class Colors:
+    # Ultralytics color palette https://ultralytics.com/
+    def __init__(self):
+        # hex = matplotlib.colors.TABLEAU_COLORS.values()
+        hexs = ('FF3838', 'FF9D97', 'FF701F', 'FFB21D', 'CFD231', '48F90A', '92CC17', '3DDB86', '1A9334', '00D4BB',
+                '2C99A8', '00C2FF', '344593', '6473FF', '0018EC', '8438FF', '520085', 'CB38FF', 'FF95C8', 'FF37C7')
+        self.palette = [self.hex2rgb(f'#{c}') for c in hexs]
+        self.n = len(self.palette)
+
+    def __call__(self, i, bgr=False):
+        c = self.palette[int(i) % self.n]
+        return (c[2], c[1], c[0]) if bgr else c
+
+    @staticmethod
+    def hex2rgb(h):  # rgb order (PIL)
+        return tuple(int(h[1 + i:1 + i + 2], 16) for i in (0, 2, 4))
+
+
+colors = Colors()  # create instance for 'from utils.plots import colors'
+
 
 def output_to_target(output):
     # Convert model output to target format [batch_id, class_id, x, y, w, h, conf]
@@ -17,25 +51,27 @@ def output_to_target(output):
             targets.append([i, cls, *list(*xyxy2xywh(np.array(box)[None])), conf])
     return np.array(targets)
 
-def color_list():
-    # Return first 10 plt colors as (r,g,b) https://stackoverflow.com/questions/51350872/python-from-color-name-to-rgb
-    def hex2rgb(h):
-        return tuple(int(h[1 + i:1 + i + 2], 16) for i in (0, 2, 4))
 
-    return [hex2rgb(h) for h in matplotlib.colors.TABLEAU_COLORS.values()]  # or BASE_ (8), CSS4_ (148), XKCD_ (949)
-
-def plot_one_box(x, img, color=None, label=None, line_thickness=3):
+def plot_one_box(x, img, color=None, txt_color=(255, 255, 255), label=None, line_thickness=3):
     # Plots one bounding box on image img
     tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
     color = color or [random.randint(0, 255) for _ in range(3)]
-    c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
-    cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
+    p1, p2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
+    cv2.rectangle(img, p1, p2, color, thickness=tl, lineType=cv2.LINE_AA)
     if label:
         tf = max(tl - 1, 1)  # font thickness
-        t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
-        c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
-        cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
-        cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
+        w, h = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
+        outside = p1[1] - h >= 3
+        p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
+        cv2.rectangle(img, p1, p2, color, -1, cv2.LINE_AA)  # filled
+        cv2.putText(img,
+                    label,
+                    (p1[0], p1[1] - 2 if outside else p1[1] + h + 2),
+                    0,
+                    tl / 3,
+                    txt_color,
+                    thickness=tf,
+                    lineType=cv2.LINE_AA)
 
 
 def plot_study_txt(path='', x=None):  # from src.plots import *; plot_study_txt()
@@ -70,18 +106,17 @@ def plot_study_txt(path='', x=None):  # from src.plots import *; plot_study_txt(
     plt.savefig(str(Path(path).name) + '.png', dpi=300)
 
 
+@threaded
 def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max_size=640, max_subplots=16):
     # Plot image grid with labels
-
-    # un-normalise
-    if np.max(images[0]) <= 1:
-        images *= 255
 
     tl = 3  # line thickness
     tf = max(tl - 1, 1)  # font thickness
     bs, _, h, w = images.shape  # batch size, _, height, width
     bs = min(bs, max_subplots)  # limit plot images
     ns = np.ceil(bs ** 0.5)  # number of subplots (square)
+    if np.max(images[0]) <= 1:
+        images *= 255   # de-normalise (optional)
 
     # Check if we should resize
     scale_factor = max_size / max(h, w)
@@ -89,7 +124,6 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
         h = math.ceil(scale_factor * h)
         w = math.ceil(scale_factor * w)
 
-    colors = color_list()  # list of colors
     mosaic = np.full((int(ns * h), int(ns * w), 3), 255, dtype=np.uint8)  # init
     for i, img in enumerate(images):
         if i == max_subplots:  # if last batch has fewer images than we expect
@@ -97,12 +131,11 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
 
         block_x = int(w * (i // ns))
         block_y = int(h * (i % ns))
-
         img = img.transpose(1, 2, 0)
-        if scale_factor < 1:
+        if scale_factor < 1:    # Resize (Optional)
             img = cv2.resize(img, (w, h))
-
         mosaic[block_y:block_y + h, block_x:block_x + w, :] = img
+
         if len(targets) > 0:
             image_targets = targets[targets[:, 0] == i]
             boxes = xywh2xyxy(image_targets[:, 2:6]).T
@@ -120,15 +153,19 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
             boxes[[1, 3]] += block_y
             for j, box in enumerate(boxes.T):
                 cls = int(classes[j])
-                color = colors[cls % len(colors)]
+                color = colors(cls)  # colors[cls % len(colors)]
                 cls = names[cls] if names else cls
                 if labels or conf[j] > 0.25:  # 0.25 conf thresh
-                    label = '%s' % cls if labels else '%s %.1f' % (cls, conf[j])
+                    label = f'{cls}' if labels else f'{cls} {conf[j]:.1f}'
                     plot_one_box(box, mosaic, label=label, color=color, line_thickness=tl)
 
         # Draw image filename labels
-        if paths:
-            label = Path(paths[i]).name[:40]  # trim to 40 char
+        if paths is not None:
+            if type(paths[i]) is np.ndarray or type(paths[i]) is np.bytes_:
+                path = Path(str(codecs.decode(paths[i].tostring()).strip(b'\x00'.decode())))
+            else:
+                path = Path(paths[i])
+            label = path.name[:40]  # trim to 40 char
             t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
             cv2.putText(mosaic, label, (block_x + 5, block_y + t_size[1] + 5), 0, tl / 3, [220, 220, 220], thickness=tf,
                         lineType=cv2.LINE_AA)
@@ -142,3 +179,75 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
         # cv2.imwrite(fname, cv2.cvtColor(mosaic, cv2.COLOR_BGR2RGB))  # cv2 save
         Image.fromarray(mosaic).save(fname)  # PIL save
     return mosaic
+
+
+@TryExcept()  # known issue https://github.com/ultralytics/yolov5/issues/5395
+def plot_labels(labels, names=(), save_dir=Path('')):
+    # plot dataset labels
+    LOGGER.info(f"Plotting labels to {save_dir / 'labels.jpg'}... ")
+    c, b = labels[:, 0], labels[:, 1:].transpose()  # classes, boxes
+    nc = int(c.max() + 1)  # number of classes
+    x = pd.DataFrame(b.transpose(), columns=['x', 'y', 'width', 'height'])
+
+    # seaborn correlogram
+    sn.pairplot(x, corner=True, diag_kind='auto', kind='hist', diag_kws=dict(bins=50), plot_kws=dict(pmax=0.9))
+    plt.savefig(save_dir / 'labels_correlogram.jpg', dpi=200)
+    plt.close()
+
+    # matplotlib labels
+    matplotlib.use('svg')  # faster
+    ax = plt.subplots(2, 2, figsize=(8, 8), tight_layout=True)[1].ravel()
+    y = ax[0].hist(c, bins=np.linspace(0, nc, nc + 1) - 0.5, rwidth=0.8)
+    with contextlib.suppress(Exception):  # color histogram bars by class
+        [y[2].patches[i].set_color([x / 255 for x in colors(i)]) for i in range(nc)]  # known issue #3195
+    ax[0].set_ylabel('instances')
+    if 0 < len(names) < 30:
+        ax[0].set_xticks(range(len(names)))
+        ax[0].set_xticklabels(list(names.values()), rotation=90, fontsize=10)
+    else:
+        ax[0].set_xlabel('classes')
+    sn.histplot(x, x='x', y='y', ax=ax[2], bins=50, pmax=0.9)
+    sn.histplot(x, x='width', y='height', ax=ax[3], bins=50, pmax=0.9)
+
+    # rectangles
+    labels[:, 1:3] = 0.5  # center
+    labels[:, 1:] = xywh2xyxy(labels[:, 1:]) * 2000
+    img = Image.fromarray(np.ones((2000, 2000, 3), dtype=np.uint8) * 255)
+    for cls, *box in labels[:1000]:
+        ImageDraw.Draw(img).rectangle(box, width=1, outline=colors(cls))  # plot
+    ax[1].imshow(img)
+    ax[1].axis('off')
+
+    for a in [0, 1, 2, 3]:
+        for s in ['top', 'right', 'left', 'bottom']:
+            ax[a].spines[s].set_visible(False)
+
+    plt.savefig(save_dir / 'labels.jpg', dpi=200)
+    matplotlib.use('Agg')
+    plt.close()
+
+
+def plot_results(file='path/to/results.csv', directory=''):
+    # Plot training results.csv. Usage: from utils.plots import *; plot_results('path/to/results.csv')
+    save_dir = Path(file).parent if file else Path(directory)
+    fig, ax = plt.subplots(2, 5, figsize=(12, 6), tight_layout=True)
+    ax = ax.ravel()
+    files = list(save_dir.glob('results*.csv'))
+    assert len(files), f'No results.csv files found in {save_dir.resolve()}, nothing to plot.'
+    for f in files:
+        try:
+            data = pd.read_csv(f)
+            s = [x.strip() for x in data.columns]
+            x = data.values[:, 0]
+            for i, j in enumerate([1, 2, 3, 4, 5, 8, 9, 10, 6, 7]):
+                y = data.values[:, j].astype('float')
+                # y[y == 0] = np.nan  # don't show zero values
+                ax[i].plot(x, y, marker='.', label=f.stem, linewidth=2, markersize=8)
+                ax[i].set_title(s[j], fontsize=12)
+                # if j in [8, 9, 10]:  # share train and val loss y axes
+                #     ax[i].get_shared_y_axes().join(ax[i], ax[i - 5])
+        except Exception as e:
+            LOGGER.info(f'Warning: Plotting error for {f}: {e}')
+    ax[1].legend()
+    fig.savefig(save_dir / 'results.png', dpi=200)
+    plt.close()

@@ -19,6 +19,7 @@ from mindspore.communication.management import init, get_rank, get_group_size
 from mindspore.ops import functional as F
 from mindspore.profiler.profiling import Profiler
 
+from src.loggers import get_logger
 from config.args import get_args_train
 from src.network.loss import ComputeLoss
 from src.network.yolo import Model
@@ -29,42 +30,13 @@ from src.optimizer import get_group_param, get_lr, YoloMomentum
 from src.general import increment_path, colorstr, labels_to_class_weights, check_file, check_img_size
 from test import test
 
+LOGGER = get_logger()
+
 
 def set_seed(seed=2):
     np.random.seed(seed)
     random.seed(seed)
     ms.set_seed(seed)
-
-
-# clip grad define ----------------------------------------------------------------------------------
-clip_grad = ops.MultitypeFuncGraph("clip_grad")
-hyper_map = ops.HyperMap()
-GRADIENT_CLIP_TYPE = 1  # 0, ClipByValue; 1, ClipByNorm;
-GRADIENT_CLIP_VALUE = 10.0
-
-
-@clip_grad.register("Number", "Number", "Tensor")
-def _clip_grad(clip_type, clip_value, grad):
-    """
-        Clip gradients.
-
-        Inputs:
-            clip_type (int): The way to clip, 0 for 'value', 1 for 'norm'.
-            clip_value (float): Specifies how much to clip.
-            grad (tuple[Tensor]): Gradients.
-
-        Outputs:
-            tuple[Tensor]: clipped gradients.
-        """
-    if clip_type not in (0, 1):
-        return grad
-    dt = F.dtype(grad)
-    if clip_type == 0:
-        new_grad = ops.clip_by_value(grad, F.cast(F.tuple_to_array((-clip_value,)), dt),
-                                     F.cast(F.tuple_to_array((clip_value,)), dt))
-    else:
-        new_grad = nn.ClipByNorm()(grad, F.cast(F.tuple_to_array((clip_value,)), dt))
-    return new_grad
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -171,7 +143,7 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
                       save_hybrid=opt.save_hybrid,
                       save_conf=opt.save_conf,
                       trace=not opt.no_trace,
-                      plots=False,
+                      plots=not opt.noplots,
                       half_precision=False,
                       v5_metric=opt.v5_metric,
                       is_distributed=opt.is_distributed,
@@ -354,7 +326,7 @@ def train(hyp, opt):
     jit = True if opt.ms_mode.lower() == "graph" else False
     sink_process = ms.data_sink(train_step, dataloader, steps=data_size * epochs, sink_size=data_size, jit=jit)
 
-    summary_dir = f"{opt.summary_dir}/rank_{rank}"
+    summary_dir = os.path.join(save_dir, opt.summary_dir, f"rank_{rank}")
     summary_interval = opt.summary_interval   # Unit: epoch
     steps_per_epoch = data_size
     with ms.SummaryRecord(summary_dir) if opt.summary else nullcontext() as summary_record:

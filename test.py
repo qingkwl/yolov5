@@ -14,11 +14,9 @@ from pycocotools.coco import COCO
 
 try:
     from third_party.fast_coco.fast_coco_eval_api import Fast_COCOeval as COCOeval
-
     print("[INFO] Use third party coco eval api to speed up mAP calculation.")
 except ImportError:
     from pycocotools.cocoeval import COCOeval
-
     print("[INFO] Third party coco eval api import failed, use default api.")
 
 import mindspore as ms
@@ -29,7 +27,7 @@ from mindspore.communication.management import init, get_rank, get_group_size
 from src.network.yolo import Model
 from config.args import get_args_test
 from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
-    colorstr, box_iou, Synchronize, increment_path
+    colorstr, box_iou, Synchronize, increment_path, Callbacks
 from src.dataset import create_dataloader
 from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
 from src.plots import plot_study_txt, plot_images, output_to_target
@@ -204,7 +202,8 @@ def test(data,
          rank=0,
          rank_size=1,
          opt=None,
-         cur_epoch=0):
+         cur_epoch=0,
+         callbacks=Callbacks()):
     # Configure
     if isinstance(data, str):
         is_coco = data.endswith('coco.yaml')
@@ -275,8 +274,10 @@ def test(data,
     map_table_str = ''
     loss = np.zeros(3)
     jdict, stats, ap, ap_class = [], [], [], []
+    callbacks.run('on_val_start')
     s_time = time.time()
     for batch_i, meta_data in enumerate(data_loader):
+        callbacks.run('on_val_batch_start')
         img, targets, paths, shapes = meta_data["img"], meta_data["label_out"], \
                                       meta_data["img_files"], meta_data["shapes"]
         img = img / 255.0  # 0 - 255 to 0.0 - 1.0
@@ -361,10 +362,10 @@ def test(data,
         t2 += metric_time
         # Plot images
         if plots and batch_i < 3:
-            f = os.path.join(save_dir, f'test_batch{batch_i}_labels.jpg')  # labels
-            Thread(target=plot_images, args=(img, targets, paths, f, names), daemon=True).start()
-            f = os.path.join(save_dir, f'test_batch{batch_i}_pred.jpg')  # predictions
-            Thread(target=plot_images, args=(img, output_to_target(out), paths, f, names), daemon=True).start()
+            labels_path = os.path.join(save_dir, f'test_batch{batch_i}_labels.jpg')  # labels
+            plot_images(img, targets, paths, labels_path, names)
+            pred_path = os.path.join(save_dir, f'test_batch{batch_i}_pred.jpg')  # predictions
+            plot_images(img, output_to_target(out), paths, pred_path, names)
 
         print(f"Test step: {batch_i + 1}/{per_epoch_size}: cost time [{(time.time() - s_time) * 1e3:.2f}]ms "
               f"Data time: [{data_time * 1e3:.2f}]ms  Infer time: [{infer_time * 1e3:.2f}]ms  "
@@ -372,7 +373,7 @@ def test(data,
               f"Metric time: [{metric_time * 1e3:.2f}]ms", flush=True)
         s_time = time.time()
 
-    # compute_metrics(plots, save_dir, names, nc, seen, stats, verbose, training)
+    compute_metrics(plots, save_dir, names, nc, seen, stats, verbose, is_training)
 
     # Print speeds
     total_time = (t0, t1, t2, t0 + t1 + t2, imgsz, imgsz, batch_size)  # tuple
@@ -494,7 +495,7 @@ if __name__ == '__main__':
              save_conf=opt.save_conf,
              trace=not opt.no_trace,
              rect=opt.rect,
-             plots=False,
+             plots=not opt.noplots,
              half_precision=False,
              v5_metric=opt.v5_metric,
              is_distributed=opt.is_distributed,

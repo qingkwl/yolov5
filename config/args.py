@@ -42,6 +42,7 @@ def get_args_train():
     parser.add_argument('--nosave', type=ast.literal_eval, default=False, help='only save final checkpoint')
     parser.add_argument('--notest', type=ast.literal_eval, default=False, help='only test final epoch')
     parser.add_argument('--noautoanchor', type=ast.literal_eval, default=False, help='disable autoanchor check')
+    parser.add_argument('--noplots', type=ast.literal_eval, default=True, help='disable plot')
     parser.add_argument('--evolve', type=ast.literal_eval, default=False, help='evolve hyperparameters')
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
     parser.add_argument('--cache_images', type=ast.literal_eval, default=False, help='cache images for faster training')
@@ -81,7 +82,7 @@ def get_args_train():
     parser.add_argument('--summary_interval', type=int, default=1,
                         help='Epoch interval to save summary files')  # Unit: epoch
 
-    # args for evaluatation
+    # args for evaluation
     parser.add_argument('--run_eval', type=ast.literal_eval, default=True,
                         help='Whether do evaluation after some epoch')
     parser.add_argument('--eval_start_epoch', type=int, default=200, help='Start epoch interval to do evaluation')
@@ -135,6 +136,7 @@ def get_args_test():
     parser.add_argument('--project', default='./run_test', help='save to project/name')
     parser.add_argument('--exist_ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no_trace', action='store_true', help='don`t trace model')
+    parser.add_argument('--noplots', type=ast.literal_eval, default=True, help='disable plot')
     parser.add_argument('--v5_metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--transfer_format', type=ast.literal_eval, default=True,
                         help='whether transform data format to coco')
