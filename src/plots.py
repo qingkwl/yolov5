@@ -9,11 +9,11 @@ import seaborn as sn
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 from src.general import xywh2xyxy, xyxy2xywh
 from src.utils import threaded, TryExcept
-from src.loggers.default import get_logger
+from src.logging import get_logger
 
 LOGGER = get_logger()
 
