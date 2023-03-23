@@ -16,7 +16,7 @@ from mindspore import SummaryRecord
 
 LOGGER = get_logger()
 LOGGERS = ('csv', 'ms')  # ('csv', 'tb', 'wandb', 'clearml', 'comet')  # *.csv, TensorBoard, Weights & Biases, ClearML
-RANK = int(os.getenv('RANK', -1))
+RANK = int(os.getenv('RANK_ID', -1))
 
 wandb = None
 clearml = None

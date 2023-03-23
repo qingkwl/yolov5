@@ -3,7 +3,7 @@
 ###==========================================================================
 ### Usage: bash run_standalone_test_ascend.sh [OPTIONS]...
 ### Description:
-###     Run distributed test for YOLOv5 model.
+###     Run standalone test for YOLOv5 model.
 ###     Note that long option should use '--option=value' format, short option should use '-o value'
 ### Options:
 ###   -d  --data                path to dataset config yaml file
