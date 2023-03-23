@@ -31,7 +31,7 @@ ROOT_DIR = Path(__file__).parent.parent
 LOGGING_NAME = "YOLOs"
 # MSG_FORMAT = "%(asctime)s.%(msecs)03d - [%(levelname)s] - %(pathname)s:%(lineno)d - %(message)s"
 # MSG_FORMAT = "%(asctime)s.%(msecs)03d - [%(levelname)s] - %(relativepath)s:%(lineno)d - %(message)s"
-MSG_FORMAT = "[%(levelname)s] [%(asctime)s.%(msecs)03d] %(message)s"
+MSG_FORMAT = "[%(levelname)s] %(asctime)s.%(msecs)03d [%(relativepath)s:%(lineno)d] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 FORMATTER = Formatter(fmt=MSG_FORMAT, datefmt=DATE_FORMAT)
 OLD_LOG_RECORD_FACTORY = logging.getLogRecordFactory()
@@ -44,7 +44,7 @@ def log_record_factory(*args, **kwargs):
     return log_record
 
 
-# logging.setLogRecordFactory(log_record_factory)   # Currently file information is not necessary, comment temporarily
+logging.setLogRecordFactory(log_record_factory)   # With relative path
 
 
 class StdoutFilter(Filter):
@@ -71,7 +71,7 @@ class StdoutLogger(Logger):
 logging.setLoggerClass(StdoutLogger)
 
 
-def set_logger(logger: logging.Logger, level=logging.INFO, rank=-1, filename=None, pyrun=True):
+def set_logger(logger: logging.Logger, level=logging.INFO, filename=None):
     if filename is not None:
         file_handler = RotatingFileHandler(filename=filename, maxBytes=10 * 1024 * 1024, backupCount=10)
         file_handler.setFormatter(FORMATTER)

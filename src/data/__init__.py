@@ -18,7 +18,7 @@ from __future__ import annotations
 import yaml
 from pathlib import Path
 from typing import Type
-from src.logging import get_logger
+from src.loggers.default import get_logger
 from src.data.base import BaseArgs, COCOArgs, YOLOArgs, LabelmeArgs, exists
 from src.data.coco import COCOManager
 from src.data.yolo import YOLOManager
