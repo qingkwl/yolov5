@@ -301,6 +301,14 @@ bash run_distribute_train_gpu.sh ../config/network/yolov5s.yaml ../config/data/c
 ```
 
 
+You can also use OpenMPI to run distributed training. You should follow the [official tutorial](https://www.mindspore.cn/tutorials/experts/en/r2.0.0-alpha/parallel/train_gpu.html#configuring-distributed-environment)
+to configure OpenMPI environment，then execute the following command：
+
+```bash
+bash mpirun_train.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml
+```
+
 ## [Evaluation Process](#contents)
 
 ### Evaluation
@@ -331,6 +339,13 @@ bash run_standalone_test_ascend.sh --w path/to/weights.ckpt -c ../config/network
 ```
 
 The above python command will run in the background. You can view the results through the file "log.txt".
+
+You can also use OpenMPI to run distributed test. You should follow the [official tutorial](https://www.mindspore.cn/tutorials/experts/en/r2.0.0-alpha/parallel/train_gpu.html#configuring-distributed-environment)
+to configure OpenMPI environment，then execute the following command：
+```bash
+bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml
+```
 
 # [Model Description](#contents)
 
