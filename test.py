@@ -6,18 +6,10 @@ import json
 import yaml
 import codecs
 from pathlib import Path
-from threading import Thread
 from contextlib import redirect_stdout
 
 import numpy as np
 from pycocotools.coco import COCO
-
-try:
-    from third_party.fast_coco.fast_coco_eval_api import Fast_COCOeval as COCOeval
-    print("[INFO] Use third party coco eval api to speed up mAP calculation.")
-except ImportError:
-    from pycocotools.cocoeval import COCOeval
-    print("[INFO] Third party coco eval api import failed, use default api.")
 
 import mindspore as ms
 from mindspore.context import ParallelMode
@@ -28,6 +20,7 @@ from src.network.yolo import Model
 from config.args import get_args_test
 from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
     colorstr, box_iou, Synchronize, increment_path, Callbacks
+from src.general import COCOEval as COCOeval
 from src.dataset import create_dataloader
 from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
 from src.plots import plot_study_txt, plot_images, output_to_target
@@ -137,11 +130,9 @@ def coco_eval(anno_json, pred_json, dataset, is_coco):
         eval.params.imgIds = [int(Path(x).stem) for x in dataset.im_files]  # image IDs to evaluate
     eval.evaluate()
     eval.accumulate()
-    buffer = io.StringIO()
-    with redirect_stdout(buffer):
-        eval.summarize()
+    eval.summarize(categoryIds=-1)
     map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
-    return map, map50, buffer.getvalue()
+    return map, map50, eval.stats_str, eval.category_stats, eval.category_stats_str
 
 
 def merge_json(project_dir, prefix):
@@ -167,7 +158,7 @@ def view_result(anno_json, result_json, val_path, score_threshold=None, recommen
     img_path_name = os.path.splitext(os.path.basename(val_path))[0]
     im_path_dir = os.path.join(data_dir, "images", img_path_name)
     config = Dict(config)
-    with open(result_json,'r') as f:
+    with open(result_json, 'r') as f:
         result = json.load(f)
     result_files = coco_visual.results2json(dataset_coco, result, "./results.pkl")
     coco_visual.coco_eval(config, result_files, eval_types, dataset_coco, im_path_dir=im_path_dir,
@@ -386,6 +377,8 @@ def test(data,
     if plots:
         confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
 
+    category_stats = None
+    category_stats_str = None
     # Save JSON
     if save_json and len(jdict):
         w = Path(weights).stem if weights is not None else ''  # weights
@@ -420,12 +413,11 @@ def test(data,
                 print("[INFO] Visualization result completed.", flush=True)
         except Exception as e:
             print(f'[WARNING] Visualization eval result fail: {e}', flush=True)
-
         try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
             if rank == 0:
                 print("[INFO] Start evaluating mAP...", flush=True)
-                map, map50, map_table_str = coco_eval(anno_json, merged_results if is_distributed else jdict,
-                                                      dataset, is_coco)
+                map, map50, map_table_str, category_stats, category_stats_str = \
+                    coco_eval(anno_json, merged_results if is_distributed else jdict, dataset, is_coco)
                 print("[INFO] Finish evaluating mAP.", flush=True)
                 print(f"COCO mAP:\n{map_table_str}", flush=True)
                 if os.path.exists(sync_tmp_file):
@@ -448,8 +440,16 @@ def test(data,
     for i, c in enumerate(ap_class):
         maps[c] = ap[i]
 
+    if not is_training:
+        print(map_table_str)
+        if category_stats_str is not None:
+            for idx, category_str in enumerate(category_stats_str):
+                with open("class_map.txt", "w") as file:
+                    file.write(f"class {data['names'][idx]}:\n{category_str}\n")
+
     model.set_train()
-    return (mp, mr, map50, map, *(loss / per_epoch_size).tolist(), map_table_str), maps, t
+    return (mp, mr, map50, map, *(loss / per_epoch_size).tolist()), maps, t, map_table_str, \
+           category_stats, category_stats_str
 
 
 if __name__ == '__main__':
@@ -514,8 +514,9 @@ if __name__ == '__main__':
         y = []  # y axis
         for i in x:  # img-size
             print(f'\nRunning {f} point {i}...')
-            r, _, t = test(opt.data, opt.weights, opt.batch_size, i, opt.conf_thres, opt.iou_thres, opt.save_json,
-                           plots=False, half_precision=False, v5_metric=opt.v5_metric)
+            r, _, t, _, _, _ = test(opt.data, opt.weights, opt.batch_size, i, opt.conf_thres, opt.iou_thres,
+                                    opt.save_json,
+                                    plots=False, half_precision=False, v5_metric=opt.v5_metric)
             y.append(r + t)  # results and times
         np.savetxt(f, y, fmt='%10.4g')  # save
         os.system('zip -r study.zip study_*.txt')

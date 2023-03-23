@@ -19,7 +19,7 @@ from mindspore.communication.management import init, get_rank, get_group_size
 from mindspore.ops import functional as F
 from mindspore.profiler.profiling import Profiler
 
-from src.loggers import get_logger
+from src.logging import get_logger
 from config.args import get_args_train
 from src.network.loss import ComputeLoss
 from src.network.yolo import Model
@@ -126,33 +126,34 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
     ms.load_param_into_net(infer_model, param_dict)
     del param_dict
     infer_model.set_train(False)
-    info, _, _ = test(opt.data,
-                      opt.weights,
-                      opt.batch_size,
-                      opt.img_size,
-                      opt.conf_thres,
-                      opt.iou_thres,
-                      opt.save_json,
-                      opt.single_cls,
-                      opt.augment,
-                      opt.verbose,
-                      model=infer_model,
-                      dataloader=val_dataloader,
-                      dataset=val_dataset,
-                      save_txt=opt.save_txt | opt.save_hybrid,
-                      save_hybrid=opt.save_hybrid,
-                      save_conf=opt.save_conf,
-                      trace=not opt.no_trace,
-                      plots=not opt.noplots,
-                      half_precision=False,
-                      v5_metric=opt.v5_metric,
-                      is_distributed=opt.is_distributed,
-                      rank=opt.rank,
-                      rank_size=opt.rank_size,
-                      opt=opt,
-                      cur_epoch=cur_epoch)
+    info, _, _, stats_str, category_stats, category_stats_str = \
+        test(opt.data,
+             opt.weights,
+             opt.batch_size,
+             opt.img_size,
+             opt.conf_thres,
+             opt.iou_thres,
+             opt.save_json,
+             opt.single_cls,
+             opt.augment,
+             opt.verbose,
+             model=infer_model,
+             dataloader=val_dataloader,
+             dataset=val_dataset,
+             save_txt=opt.save_txt | opt.save_hybrid,
+             save_hybrid=opt.save_hybrid,
+             save_conf=opt.save_conf,
+             trace=not opt.no_trace,
+             plots=not opt.noplots,
+             half_precision=False,
+             v5_metric=opt.v5_metric,
+             is_distributed=opt.is_distributed,
+             rank=opt.rank,
+             rank_size=opt.rank_size,
+             opt=opt,
+             cur_epoch=cur_epoch)
     infer_model.set_train(True)
-    return info
+    return info, stats_str, category_stats, category_stats_str
 
 
 def save_ema(ema, ema_ckpt_path, append_dict=None):
@@ -327,7 +328,7 @@ def train(hyp, opt):
     sink_process = ms.data_sink(train_step, dataloader, steps=data_size * epochs, sink_size=data_size, jit=jit)
 
     summary_dir = os.path.join(save_dir, opt.summary_dir, f"rank_{rank}")
-    summary_interval = opt.summary_interval   # Unit: epoch
+    summary_interval = opt.summary_interval  # Unit: epoch
     steps_per_epoch = data_size
     with ms.SummaryRecord(summary_dir) if opt.summary else nullcontext() as summary_record:
         for cur_epoch in range(resume_epoch, epochs):
@@ -335,7 +336,7 @@ def train(hyp, opt):
             start_train_time = time.time()
             loss = sink_process()
             end_train_time = time.time()
-            print(f"Epoch {epochs-resume_epoch}/{cur_epoch}, step {data_size}, "
+            print(f"Epoch {epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
                   f"epoch time {((end_train_time - start_train_time) * 1000):.2f} ms, "
                   f"step time {((end_train_time - start_train_time) * 1000 / data_size):.2f} ms, "
                   f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
@@ -372,7 +373,8 @@ def train(hyp, opt):
                        ((cur_epoch >= opt.eval_start_epoch) and (cur_epoch % opt.eval_epoch_interval) == 0)
 
             if opt.run_eval and is_eval_epoch():
-                eval_results = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
+                eval_results, stats_str, category_stats, category_stats_str = \
+                    val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
                 mean_ap = eval_results[3]
                 if opt.summary and summary_record is not None:
                     summary_record.add_value('scalar', 'map', ms.Tensor(mean_ap))
@@ -380,9 +382,11 @@ def train(hyp, opt):
                 if rank % 8 == 0:
                     model_name = Path(opt.cfg).stem  # delete ".yaml" suffix
                     map_str_path = os.path.join(wdir, f"{model_name}_{cur_epoch}_map.txt")
-                    coco_map_table_str = eval_results[-1]
                     with open(map_str_path, 'w') as file:
-                        file.write(f"COCO API:\n{coco_map_table_str}\n")
+                        file.write(f"COCO API:\n{stats_str}\n")
+                        if category_stats_str is not None:
+                            for idx, category_str in enumerate(category_stats_str):
+                                file.write(f"class {names[idx]}:\n{category_str}\n")
                     if mean_ap > best_map:
                         best_map = mean_ap
                         print(f"[INFO] Best result: Best mAP [{best_map}] at epoch [{cur_epoch}]", flush=True)
@@ -428,7 +432,8 @@ if __name__ == '__main__':
     if opt.is_distributed:
         init()
         rank, rank_size, parallel_mode = get_rank(), get_group_size(), ParallelMode.DATA_PARALLEL
-        context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size, all_reduce_fusion_config=[10, 70, 130, 190, 250, 310])
+        context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size,
+                                          all_reduce_fusion_config=[10, 70, 130, 190, 250, 310])
 
     opt.total_batch_size = opt.batch_size
     opt.rank_size = rank_size
