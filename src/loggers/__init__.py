@@ -5,7 +5,6 @@ from pathlib import Path
 import pkg_resources as pkg
 
 import cv2
-from src.loggers.default import get_logger
 from src.general import colorstr
 # from utils.loggers.clearml.clearml_utils import ClearmlLogger
 # from utils.loggers.wandb.wandb_utils import WandbLogger
@@ -14,7 +13,6 @@ from src.plots import plot_images, plot_labels, plot_results
 import mindspore as ms
 from mindspore import SummaryRecord
 
-LOGGER = get_logger()
 LOGGERS = ('csv', 'ms')  # ('csv', 'tb', 'wandb', 'clearml', 'comet')  # *.csv, TensorBoard, Weights & Biases, ClearML
 RANK = int(os.getenv('RANK_ID', -1))
 
