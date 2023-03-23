@@ -16,6 +16,7 @@ from mindspore.context import ParallelMode
 from mindspore import context, Tensor, ops
 from mindspore.communication.management import init, get_rank, get_group_size
 
+from src.general import LOGGER
 from src.network.yolo import Model
 from config.args import get_args_test
 from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
@@ -90,7 +91,7 @@ def load_checkpoint_to_yolo(model, ckpt_path):
             k = k[len("ema.ema."):]
             new_params[k] = v
     ms.load_param_into_net(model, new_params)
-    print(f"load ckpt from \"{ckpt_path}\" success.", flush=True)
+    LOGGER.info(f"load ckpt from \"{ckpt_path}\" success.")
 
 
 def compute_metrics(plots, save_dir, names, nc, seen, stats, verbose, training):
@@ -139,12 +140,12 @@ def merge_json(project_dir, prefix):
     merged_json = os.path.join(project_dir, f"{prefix}_predictions_merged.json")
     merged_result = []
     for json_file in Path(project_dir).rglob("*.json"):
-        print(f"[INFO] Merge json file {json_file.resolve()}", flush=True)
+        LOGGER.info(f"Merge json file {json_file.resolve()}")
         with open(json_file, "r") as file_handler:
             merged_result.extend(json.load(file_handler))
     with open(merged_json, "w") as file_handler:
         json.dump(merged_result, file_handler)
-    print(f"[INFO] Write merged results to file {merged_json} successfully.", flush=True)
+    LOGGER.info(f"Write merged results to file {merged_json} successfully.")
     return merged_json, merged_result
 
 
@@ -233,7 +234,7 @@ def test(data,
 
     # Dataloader
     if dataloader is None or dataset is None:
-        print("[INFO] enable rect", rect, flush=True)
+        LOGGER.info(f"Enable rect: {rect}")
         task = opt.task if opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
         dataloader, dataset, per_epoch_size = create_dataloader(data[task], imgsz, batch_size, gs, opt,
                                                                 epoch_size=1, pad=0.5, rect=rect,
@@ -245,7 +246,7 @@ def test(data,
                                                                 prefix=colorstr(f'{task}: '))
         assert per_epoch_size == dataloader.get_dataset_size()
         data_loader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
-        print(f"Test create dataset success, epoch size {per_epoch_size}.")
+        LOGGER.info(f"Test create dataset success, epoch size {per_epoch_size}.")
     else:
         assert dataset is not None
         assert dataloader is not None
@@ -253,7 +254,7 @@ def test(data,
         data_loader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
 
     if v5_metric:
-        print("Testing with YOLOv5 AP metric...")
+        LOGGER.info("Testing with YOLOv5 AP metric...")
 
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
@@ -358,10 +359,10 @@ def test(data,
             pred_path = os.path.join(save_dir, f'test_batch{batch_i}_pred.jpg')  # predictions
             plot_images(img, output_to_target(out), paths, pred_path, names)
 
-        print(f"Test step: {batch_i + 1}/{per_epoch_size}: cost time [{(time.time() - s_time) * 1e3:.2f}]ms "
-              f"Data time: [{data_time * 1e3:.2f}]ms  Infer time: [{infer_time * 1e3:.2f}]ms  "
-              f"NMS time: [{nms_time * 1e3:.2f}]ms  "
-              f"Metric time: [{metric_time * 1e3:.2f}]ms", flush=True)
+        LOGGER.info(f"Test step: {batch_i + 1}/{per_epoch_size}: cost time [{(time.time() - s_time) * 1e3:.2f}]ms "
+                    f"Data time: [{data_time * 1e3:.2f}]ms  Infer time: [{infer_time * 1e3:.2f}]ms  "
+                    f"NMS time: [{nms_time * 1e3:.2f}]ms  "
+                    f"Metric time: [{metric_time * 1e3:.2f}]ms")
         s_time = time.time()
 
     compute_metrics(plots, save_dir, names, nc, seen, stats, verbose, is_training)
@@ -370,8 +371,8 @@ def test(data,
     total_time = (t0, t1, t2, t0 + t1 + t2, imgsz, imgsz, batch_size)  # tuple
     t = tuple(x / seen * 1E3 for x in total_time[:4]) + (imgsz, imgsz, batch_size)  # tuple
     # if not training:
-    print('Speed: %.1f/%.1f/%.1f/%.1f ms inference/NMS/Metric/total per %gx%g image at batch-size %g' % t)
-    print('Total time: %.1f/%.1f/%.1f/%.1f s inference/NMS/Metric/total %gx%g image at batch-size %g' % total_time)
+    LOGGER.info('Speed: %.1f/%.1f/%.1f/%.1f ms inference/NMS/Metric/total per %gx%g image at batch-size %g' % t)
+    LOGGER.info('Total time: %.1f/%.1f/%.1f/%.1f s inference/NMS/Metric/total %gx%g image at batch-size %g' % total_time)
 
     # Plots
     if plots:
@@ -386,66 +387,64 @@ def test(data,
         anno_json = os.path.join(data_dir, "annotations/instances_val2017.json")
         if opt.transfer_format and not os.path.exists(
                 anno_json):  # data format transfer if annotations does not exists
-            print("[INFO] Transfer annotations from yolo to coco format.")
+            LOGGER.info("Transfer annotations from yolo to coco format.")
             transformer = YOLO2COCO(data_dir, output_dir=data_dir,
                                     class_names=data["names"], class_map=class_map,
                                     mode='val', annotation_only=True)
             transformer()
         pred_json = os.path.join(save_dir, f"{w}_predictions_{rank}.json")  # predictions json
-        print('\nEvaluating pycocotools mAP... saving %s...' % pred_json)
+        LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json}...')
         with open(pred_json, 'w') as f:
             json.dump(jdict, f)
         sync_tmp_file = os.path.join(project_dir, 'sync_file.tmp')
         if is_distributed:
             if rank == 0:
-                print(f"[INFO] Create sync temp file at path {sync_tmp_file}", flush=True)
+                LOGGER.info(f"Create sync temp file at path {sync_tmp_file}")
                 os.mknod(sync_tmp_file)
             synchronize()
             # Merge multiple results files
             if rank == 0:
-                print("[INFO] Merge detection results...", flush=True)
+                LOGGER.info("Merge detection results...")
                 pred_json, merged_results = merge_json(project_dir, prefix=w)
         try:
             if rank == 0 and (opt.result_view or opt.recommend_threshold):
-                print("[INFO] Start visualization result.", flush=True)
+                LOGGER.info("Start visualization result.")
                 view_result(anno_json, pred_json, data["val"], score_threshold=None,
                             recommend_threshold=opt.recommend_threshold)
-                print("[INFO] Visualization result completed.", flush=True)
+                LOGGER.info("Visualization result completed.")
         except Exception as e:
-            print(f'[WARNING] Visualization eval result fail: {e}', flush=True)
+            LOGGER.exception("Failed when visualize evaluation result.")
+
         try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
             if rank == 0:
-                print("[INFO] Start evaluating mAP...", flush=True)
+                LOGGER.info("Start evaluating mAP...")
                 map, map50, map_table_str, category_stats, category_stats_str = \
                     coco_eval(anno_json, merged_results if is_distributed else jdict, dataset, is_coco)
-                print("[INFO] Finish evaluating mAP.", flush=True)
+                LOGGER.info("Finish evaluating mAP.")
                 print(f"COCO mAP:\n{map_table_str}", flush=True)
                 if os.path.exists(sync_tmp_file):
-                    print(f"[INFO] Delete sync temp file at path {sync_tmp_file}", flush=True)
+                    LOGGER.info(f"Delete sync temp file at path {sync_tmp_file}")
                     os.remove(sync_tmp_file)
             else:
-                print(f"[INFO] Waiting for rank [0] device...", flush=True)
+                LOGGER.info(f"Waiting for rank [0] device...")
                 while os.path.exists(sync_tmp_file):
                     time.sleep(1)
-                print(f"[INFO] Rank [{rank}] continue executing.", flush=True)
+                LOGGER.info(f"Rank [{rank}] continue executing.")
         except Exception as e:
-            print(f'pycocotools unable to run: {e}')
+            LOGGER.exception("Exception when running pycocotools")
 
     # Return results
     if not is_training:
         s = f"\n{len(glob.glob(os.path.join(save_dir, 'labels/*.txt')))} labels saved to " \
             f"{os.path.join(save_dir, 'labels')}" if save_txt else ''
-        print(f"Results saved to {save_dir}, {s}")
+        LOGGER.info(f"Results saved to {save_dir}, {s}")
+        if category_stats_str is not None:
+            with open("class_map.txt", "w") as file:
+                for idx, category_str in enumerate(category_stats_str):
+                    file.write(f"class {data['names'][idx]}:\n{category_str}\n")
     maps = np.zeros(nc) + map
     for i, c in enumerate(ap_class):
         maps[c] = ap[i]
-
-    if not is_training:
-        print(map_table_str)
-        if category_stats_str is not None:
-            for idx, category_str in enumerate(category_stats_str):
-                with open("class_map.txt", "w") as file:
-                    file.write(f"class {data['names'][idx]}:\n{category_str}\n")
 
     model.set_train()
     return (mp, mr, map50, map, *(loss / per_epoch_size).tolist()), maps, t, map_table_str, \

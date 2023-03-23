@@ -11,15 +11,17 @@ import pkg_resources as pkg
 from mindspore import ops
 import mindspore.nn as nn
 
+from src.logging import get_logger
+from src.utils import emojis
+
+LOGGER = get_logger()
+
 try:
     from third_party.fast_coco.fast_coco_eval_api import Fast_COCOeval as COCOeval
     print("[INFO] Use third party coco eval api to speed up mAP calculation.")
 except ImportError:
     from pycocotools.cocoeval import COCOeval
     print("[INFO] Third party coco eval api import failed, use default api.")
-
-
-from src.utils import emojis
 
 
 def check_version(current='0.0.0', minimum='0.0.0', name='version ', pinned=False, hard=False, verbose=False):
