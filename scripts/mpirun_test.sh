@@ -39,19 +39,18 @@ echo "Make directory ${eval_exp}"
 copy_files_to "$eval_exp"
 cd "${eval_exp}" || exit
 env > env.log
-[ "$DEVICE_NUM" -gt 1 ] && distributed=True || distributed=False
+[ "$DEVICE_NUM" -gt 1 ] && distributed="True" || distributed="False"
 
 mpirun --allow-run-as-root -n "$DEVICE_NUM" \
        --output-filename log_output \
        --merge-stderr-to-stdout \
 python test.py \
-        --is_distributed=$distributed \
+        --is_distributed="$distributed" \
         --weights="$WEIGHTS" \
         --cfg="$CONFIG_PATH" \
         --data="$DATA_PATH" \
         --hyp="$HYP_PATH" \
         --device_target=Ascend \
-        --is_distributed=True \
         --img_size=640 \
         --conf=0.001 \
         --iou_thres=0.65 \

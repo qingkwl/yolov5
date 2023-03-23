@@ -1,8 +1,3 @@
-TODO:
-更新性能信息，精度，性能
-更新代码结构，添加新增代码文件说明
-更新数据集说明，更新转换工具使用方法
-
 # 目录
 
 - [目录](#目录)
@@ -286,7 +281,7 @@ python train.py \
 
 ### 分布式训练
 
-Distributed training example(8p) by shell script:
+分布式训练脚本示例：
 
 ```bash
 # For Ascend device, distributed training example(8p) by shell script
@@ -296,6 +291,14 @@ bash run_distribute_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../conf
 # For GPU device, distributed training example(8p) by shell script
 bash run_distribute_train_gpu.sh ../config/network/yolov5s.yaml ../config/data/coco.yaml \
      ../config/data/hyp.scratch-low.yaml
+```
+
+也可以通过 OpenMPI 进行分布式训练。需要按照[官方教程](https://www.mindspore.cn/tutorials/experts/zh-CN/r2.0.0-alpha/parallel/train_gpu.html#%E9%85%8D%E7%BD%AE%E5%88%86%E5%B8%83%E5%BC%8F%E7%8E%AF%E5%A2%83)
+配置好 OpenMPI 环境，然后执行以下命令：
+
+```bash
+bash mpirun_train.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml
 ```
 
 
@@ -330,6 +333,12 @@ bash run_standalone_test_ascend.sh --w path/to/weights.ckpt -c ../config/network
 
 以上 `Python` 命令会在后台运行。您可以通过 `log.txt` 文件查看输出信息。
 
+也可以使用 OpenMPI 运行分布式推理。需要按照[官方教程](https://www.mindspore.cn/tutorials/experts/zh-CN/r2.0.0-alpha/parallel/train_gpu.html#%E9%85%8D%E7%BD%AE%E5%88%86%E5%B8%83%E5%BC%8F%E7%8E%AF%E5%A2%83)
+配置好 OpenMPI 环境，然后执行以下命令：
+```bash
+bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml
+```
 
 # [模型说明](#目录)
 

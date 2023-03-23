@@ -38,13 +38,13 @@ echo "Make directory ${train_exp}"
 copy_files_to "$train_exp"
 cd "${train_exp}" || exit
 env > env.log
-[ "$DEVICE_NUM" -gt 1 ] && distributed=True || distributed=False
+[ "$DEVICE_NUM" -gt 1 ] && distributed="True" || distributed="False"
 
 mpirun --allow-run-as-root -n "$DEVICE_NUM" \
        --output-filename log_output \
        --merge-stderr-to-stdout \
 python train.py \
-        --is_distributed=$distributed \
+        --is_distributed="$distributed" \
         --clip_grad=False \
         --optimizer="momentum" \
         --cfg="$CONFIG_PATH" \
