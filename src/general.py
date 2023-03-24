@@ -435,9 +435,9 @@ class COCOEval(COCOeval):
 
     def __init__(self, cocoGt=None, cocoDt=None, iouType='segm'):
         super().__init__(cocoGt, cocoDt, iouType)
-        self.stats_str = None
+        self.stats_str = ''
         self.category_stats = []
-        self.category_stats_str = []
+        self.category_stats_strs = []
 
     def summarize(self, categoryIds=None):
         """
@@ -531,8 +531,8 @@ class COCOEval(COCOeval):
         self.stats, self.stats_str = summarize()
         if categoryIds is not None:
             self.category_stats = []
-            self.category_stats_str = []
+            self.category_stats_strs = []
             for category_id in categoryIds:
-                category_stats, category_stats_str = summarize(categoryId=category_id)
-                self.category_stats.append(category_stats)
-                self.category_stats_str.append(category_stats_str)
+                category_stat, category_stats_str = summarize(categoryId=category_id)
+                self.category_stats.append(category_stat)
+                self.category_stats_strs.append(category_stats_str)
