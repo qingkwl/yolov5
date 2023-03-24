@@ -6,22 +6,24 @@ import numpy as np
 import threading
 from typing import Callable
 from pathlib import Path
-import mindspore as ms
 import pkg_resources as pkg
+
+import mindspore as ms
 from mindspore import ops
 import mindspore.nn as nn
 
-from src.logging import get_logger
+from src.logging import get_logger, set_logger
 from src.utils import emojis
 
 LOGGER = get_logger()
+set_logger(LOGGER)
 
 try:
     from third_party.fast_coco.fast_coco_eval_api import Fast_COCOeval as COCOeval
-    print("[INFO] Use third party coco eval api to speed up mAP calculation.")
+    LOGGER.info("Use third party coco eval api to speed up mAP calculation.")
 except ImportError:
+    LOGGER.exception("Third party coco eval api import failed, use default api.")
     from pycocotools.cocoeval import COCOeval
-    print("[INFO] Third party coco eval api import failed, use default api.")
 
 
 def check_version(current='0.0.0', minimum='0.0.0', name='version ', pinned=False, hard=False, verbose=False):
@@ -73,6 +75,7 @@ def xyn2xy(x, w=640, h=640, padw=0, padh=0):
     y[..., 1] = h * x[..., 1] + padh  # top left y
     return y
 
+
 def xyxy2xywhn(x, w=640, h=640, clip=False, eps=0.0):
     # Convert nx4 boxes from [x1, y1, x2, y2] to [x, y, w, h] normalized where xy1=top-left, xy2=bottom-right
     if clip:
@@ -102,14 +105,6 @@ def xywhn2xyxy(x, w=640, h=640, padw=0, padh=0):
     y[:, 1] = h * (x[:, 1] - x[:, 3] / 2) + padh  # top left y
     y[:, 2] = w * (x[:, 0] + x[:, 2] / 2) + padw  # bottom right x
     y[:, 3] = h * (x[:, 1] + x[:, 3] / 2) + padh  # bottom right y
-    return y
-
-
-def xyn2xy(x, w=640, h=640, padw=0, padh=0):
-    # Convert normalized segments into pixel segments, shape (n,2)
-    y = np.copy(x)
-    y[:, 0] = w * x[:, 0] + padw  # top left x
-    y[:, 1] = h * x[:, 1] + padh  # top left y
     return y
 
 

@@ -95,7 +95,7 @@ def load_checkpoint_to_yolo(model, ckpt_path):
     LOGGER.info(f"load ckpt from \"{ckpt_path}\" success.")
 
 
-def compute_metrics(plots, save_dir, names, nc, seen, metric_stats, verbose, training):
+def compute_metrics(plots, save_dir, cfg, metric_stats):
     # Compute metrics
     # p, r, f1, mp, mr, map50, map = 0., 0., 0., 0., 0., 0., 0.
     # ap, ap_class = metric_stats.avg_precis, metric_stats.avg_precis_class
@@ -103,6 +103,11 @@ def compute_metrics(plots, save_dir, names, nc, seen, metric_stats, verbose, tra
     # stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     metric_stats.pred_stats = [np.concatenate(x, 0) for x in zip(*metric_stats.pred_stats)]  # to numpy
     stats = metric_stats.pred_stats
+    seen = metric_stats.seen
+    names = cfg.names
+    nc = cfg.nc
+    verbose = cfg.verbose
+    training = cfg.training
     if len(stats) and stats[0].any():
         # tp, fp, p, r, f1, ap, ap_class = ap_per_class(*stats, plot=plots, save_dir=save_dir, names=names)
         result = ap_per_class(*stats, plot=plots, save_dir=save_dir, names=names)
@@ -117,18 +122,17 @@ def compute_metrics(plots, save_dir, names, nc, seen, metric_stats, verbose, tra
 
     # Print results
     title = ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'P', 'R', 'mAP50', 'mAP50-95')
-    pf = '%20s' + '%12i' * 2 + '%12.3g' * 4  # print format
-    print(title)
+    pf = '%20s' + '%12d' * 2 + '%12.3g' * 4  # print format
+    LOGGER.info(title)
     # print(pf.format('all', seen, nt.sum(), mp, mr, map50, map))
-    print(pf.format('all', seen, nt.sum(), *metric_stats.get_mean_stats()))
+    LOGGER.info(pf.format('all', seen, nt.sum(), *metric_stats.get_mean_stats()))
 
     # Print results per class
     if (verbose or (nc < 50 and not training)) and nc > 1 and len(stats):
-        # for i, c in enumerate(ap_class):
         for i, c in enumerate(metric_stats.avg_precis_class):
             # Class     Images  Instances          P          R      mAP50   mAP50-95:
             # print(pf % (names[c], seen, nt[c], p[i], r[i], ap50[i], ap[i]))
-            print(pf.format(names[c], seen, nt[c], *metric_stats.get_ap_per_class(i)))
+            LOGGER.info(pf.format(names[c], seen, nt[c], *metric_stats.get_ap_per_class(i)))
 
 
 def coco_eval(anno_json, pred_json, dataset, is_coco):
@@ -140,9 +144,7 @@ def coco_eval(anno_json, pred_json, dataset, is_coco):
     eval_result.evaluate()
     eval_result.accumulate()
     eval_result.summarize(categoryIds=-1)
-    # map, map50 = eval_result.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
     coco_result = COCOResult(eval_result)
-    # return map, map50, eval_result.stats_str, eval_result.category_stats, eval_result.category_stats_str
     return coco_result
 
 
@@ -221,6 +223,8 @@ class MetricStatistics:
         self.avg_precis50 = []
         self.avg_precis_class = []
 
+        self.seen = 0
+
     def __iter__(self):
         for name, val in vars(self).items():
             yield val
@@ -242,7 +246,6 @@ class MetricStatistics:
 
     def set_ap_per_class(self, result):
         # result: return value of ap_per_class() function
-        # tp, fp, p, r, f1, ap, ap_class
         self.true_positive, self.false_positive = result[:2]
         self.precision, self.recall, self.f1 = result[2:5]
         self.avg_precis = result[5]
@@ -260,6 +263,17 @@ class TimeStatistics:
 
     def total_duration(self):
         return self.total_infer_duration + self.total_nms_duration + self.total_metric_duration
+
+    def get_tuple(self):
+        return self.total_infer_duration, self.total_nms_duration, self.total_metric_duration, self.total_duration()
+
+
+class Config:
+    def __init__(self):
+        self.nc = 0
+        self.names = {}
+        self.verbose = False
+        self.training = False
 
 
 def test(data,
@@ -297,7 +311,9 @@ def test(data,
         is_coco = data.endswith('coco.yaml')
         with open(data) as f:
             data = yaml.load(f, Loader=yaml.SafeLoader)
-    nc = 1 if single_cls else int(data['nc'])  # number of classes
+    cfg = Config()
+    cfg.nc = 1 if single_cls else int(data['nc'])  # number of classes
+    cfg.verbose = verbose
     iouv = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
     niou = np.prod(iouv.shape)
     synchronize = Synchronize(rank_size) if is_distributed else None
@@ -306,13 +322,13 @@ def test(data,
     save_dir = increment_path(save_dir, exist_ok=opt.exist_ok)
     os.makedirs(os.path.join(save_dir, f"labels_{rank}"), exist_ok=opt.exist_ok)
     # Initialize/load model and set device
-    is_training = model is not None
+    cfg.training = model is not None
     if model is None:  # called by train.py
         # Load model
         # Hyperparameters
         with open(opt.hyp) as f:
             hyp = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
-        model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), sync_bn=False, hyp=hyp)  # create
+        model = Model(opt.cfg, ch=3, nc=cfg.nc, anchors=hyp.get('anchors'), sync_bn=False, hyp=hyp)  # create
         ckpt_path = weights
         load_checkpoint_to_yolo(model, ckpt_path)
         gs = max(int(ops.cast(model.stride, ms.float16).max()), 32)  # grid size (max stride)
@@ -352,9 +368,8 @@ def test(data,
     if v5_metric:
         LOGGER.info("Testing with YOLOv5 AP metric...")
 
-    seen = 0
-    confusion_matrix = ConfusionMatrix(nc=nc)
-    names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
+    confusion_matrix = ConfusionMatrix(nc=cfg.nc)
+    cfg.names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
 
     start_idx = 1
     class_map = coco80_to_coco91_class() if is_coco else list(range(start_idx, 1000 + start_idx))
@@ -363,7 +378,7 @@ def test(data,
     loss = np.zeros(3)
     # jdict, stats, ap, ap_class = [], [], [], []
     callbacks.run('on_val_start')
-    s_time = time.time()
+    step_start_time = time.time()
     for batch_i, meta_data in enumerate(data_loader):
         callbacks.run('on_val_batch_start')
         img, targets, paths, shapes = meta_data["img"], meta_data["label_out"], \
@@ -378,7 +393,7 @@ def test(data,
         targets = targets.reshape((-1, 6))
         targets = targets[targets[:, 1] >= 0]
         nb, _, height, width = img.shape  # batch size, channels, height, width
-        data_time = time.time() - s_time
+        data_duration = time.time() - step_start_time
         # Run model
         infer_start_time = time.time()
         # inference and training outputs
@@ -416,11 +431,11 @@ def test(data,
             else:
                 path = Path(paths[si])
             correct = np.zeros((npr, niou)).astype(np.bool_)  # init
-            seen += 1
+            # seen += 1
+            metric_stats.seen += 1
 
             if npr == 0:
                 if nl:
-                    # stats.append((correct, *np.zeros((2, 0)).astype(np.bool_), labels[:, 0]))
                     metric_stats.pred_stats.append((correct, *np.zeros((2, 0)).astype(np.bool_), labels[:, 0]))
                     if plots:
                         confusion_matrix.process_batch(detections=None, labels=labels[:, 0])
@@ -440,54 +455,50 @@ def test(data,
                 correct = process_batch(predn, labelsn, iouv)
                 if plots:
                     confusion_matrix.process_batch(predn, labelsn)
-            # stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))  # (correct, conf, pcls, tcls)
-            metric_stats.pred_stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))  # (correct, conf, pcls, tcls)
+            # (correct, conf, pcls, tcls)
+            metric_stats.pred_stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))
 
             # Save/log
             if save_txt:
                 save_one_txt(predn, save_conf, shape, file=os.path.join(save_dir, 'labels', f'{path.stem}.txt'))
             if save_json:
-                # save_one_json(predn, jdict, path, class_map)  # append to COCO-JSON dictionary
                 save_one_json(predn, metric_stats.pred_json, path, class_map)  # append to COCO-JSON dictionary
         metric_duration = time.time() - metric_start_time
         time_stats.total_metric_duration += metric_duration
         # Plot images
         if plots and batch_i < 3:
             labels_path = os.path.join(save_dir, f'test_batch{batch_i}_labels.jpg')  # labels
-            plot_images(img, targets, paths, labels_path, names)
+            plot_images(img, targets, paths, labels_path, cfg.names)
             pred_path = os.path.join(save_dir, f'test_batch{batch_i}_pred.jpg')  # predictions
-            plot_images(img, output_to_target(out), paths, pred_path, names)
+            plot_images(img, output_to_target(out), paths, pred_path, cfg.names)
 
-        LOGGER.info(f"Step: {batch_i + 1}/{per_epoch_size}: "
-                    f"Time cost: [{(time.time() - s_time) * 1e3:.2f}]ms "
-                    f"Data: [{data_time * 1e3:.2f}]ms "
-                    f"Infer: [{infer_duration * 1e3:.2f}]ms  "
-                    f"NMS: [{nms_duration * 1e3:.2f}]ms  "
-                    f"Metric: [{metric_duration * 1e3:.2f}]ms")
-        s_time = time.time()
+        LOGGER.info(f"Step {batch_i + 1}/{per_epoch_size} "
+                    f"Time total {(time.time() - step_start_time):.2f}s  "
+                    f"Data {data_duration * 1e3:.2f}]ms  "
+                    f"Infer {infer_duration * 1e3:.2f}]ms  "
+                    f"NMS {nms_duration * 1e3:.2f}]ms  "
+                    f"Metric {metric_duration * 1e3:.2f}ms")
+        step_start_time = time.time()
 
-    # compute_metrics(plots, save_dir, names, nc, seen, stats, verbose, is_training)
-    compute_metrics(plots, save_dir, names, nc, seen, metric_stats, verbose, is_training)
+    compute_metrics(plots, save_dir, cfg, metric_stats)
 
     # Print speeds
     total_time_fmt_str = 'Total time: {:.1f}/{:.1f}/{:.1f}/{:.1f} s ' \
                          'inference/NMS/Metric/total {:g}x{:g} image at batch-size {:g}'
     speed_fmt_str = 'Speed: {:.1f}/{:.1f}/{:.1f}/{:.1f} ms ' \
                     'inference/NMS/Metric/total per {:g}x{:g} image at batch-size {:g}'
-    total_time = (time_stats.total_infer_duration, time_stats.total_nms_duration, time_stats.total_metric_duration,
-                  time_stats.total_duration(), imgsz, imgsz, batch_size)  # tuple
-    speed = tuple(x / seen * 1E3 for x in total_time[:4]) + (imgsz, imgsz, batch_size)  # tuple
-    # if not training:
-    LOGGER.info(speed_fmt_str.format(speed))
-    LOGGER.info(total_time_fmt_str.format(total_time))
+    total_time = (*time_stats.get_tuple(), imgsz, imgsz, batch_size)  # tuple
+    speed = tuple(x / metric_stats.seen * 1E3 for x in total_time[:4]) + (imgsz, imgsz, batch_size)  # tuple
+
+    LOGGER.info(speed_fmt_str.format(*speed))
+    LOGGER.info(total_time_fmt_str.format(*total_time))
 
     # Plots
     if plots:
-        confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
+        confusion_matrix.plot(save_dir=save_dir, names=list(cfg.names.values()))
 
     coco_result = COCOResult()
     # Save JSON
-    # if save_json and len(jdict):
     if save_json and len(metric_stats.pred_json):
         w = Path(weights).stem if weights is not None else ''  # weights
         data_dir = Path(data["val"]).parent
@@ -502,7 +513,6 @@ def test(data,
         pred_json_path = os.path.join(save_dir, f"{w}_predictions_{rank}.json")  # predictions json
         LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
         with open(pred_json_path, 'w') as f:
-            # json.dump(jdict, f)
             json.dump(metric_stats.pred_json, f)
         sync_tmp_file = os.path.join(project_dir, 'sync_file.tmp')
         if is_distributed:
@@ -526,14 +536,11 @@ def test(data,
         try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
             if rank == 0:
                 LOGGER.info("Start evaluating mAP...")
-                # coco_result = coco_eval(anno_json,
-                #                         merged_results if is_distributed else jdict,
-                #                         dataset, is_coco)
                 coco_result = coco_eval(anno_json,
                                         merged_results if is_distributed else metric_stats.pred_json,
                                         dataset, is_coco)
                 LOGGER.info("Finish evaluating mAP.")
-                print(f"COCO mAP:\n{coco_result.stats_str}", flush=True)
+                LOGGER.info(f"\nCOCO mAP:\n{coco_result.stats_str}")
                 if os.path.exists(sync_tmp_file):
                     LOGGER.info(f"Delete sync temp file at path {sync_tmp_file}")
                     os.remove(sync_tmp_file)
@@ -546,7 +553,7 @@ def test(data,
             LOGGER.exception("Exception when running pycocotools")
 
     # Return results
-    if not is_training:
+    if not cfg.training:
         s = f"\n{len(glob.glob(os.path.join(save_dir, 'labels/*.txt')))} labels saved to " \
             f"{os.path.join(save_dir, 'labels')}" if save_txt else ''
         LOGGER.info(f"Results saved to {save_dir}, {s}")
@@ -555,17 +562,13 @@ def test(data,
             if coco_result.category_stats_strs:
                 for idx, category_str in enumerate(coco_result.category_stats_strs):
                     file.write(f"\nclass {data['names'][idx]}:\n{category_str}\n")
-    maps = np.zeros(nc) + coco_result.get_map()
-    # for i, c in enumerate(ap_class):
+    maps = np.zeros(cfg.nc) + coco_result.get_map()
     for i, c in enumerate(metric_stats.avg_precis_class):
-        # maps[c] = ap[i]
         maps[c] = metric_stats.avg_precis[i]
 
     model.set_train()
     metric_stats.set_loss(loss / per_epoch_size)
     return metric_stats, maps, speed, coco_result
-    # return (mp, mr, map50, map, *(loss / per_epoch_size).tolist()), maps, speed, map_table_str, \
-    #        category_stats, category_stats_str
 
 
 def main():
