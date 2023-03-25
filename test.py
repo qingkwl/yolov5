@@ -1,13 +1,10 @@
-import io
 import glob
 import os
 import time
 import json
 import yaml
 import codecs
-from typing import Optional, List
 from pathlib import Path
-from contextlib import redirect_stdout
 
 import numpy as np
 from pycocotools.coco import COCO
@@ -21,7 +18,7 @@ from src.general import LOGGER
 from src.network.yolo import Model
 from config.args import get_args_test
 from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
-    colorstr, box_iou, Synchronize, increment_path, Callbacks
+    colorstr, box_iou, increment_path, Callbacks, SynchronizeManager
 from src.general import COCOEval as COCOeval
 from src.dataset import create_dataloader
 from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
@@ -97,10 +94,6 @@ def load_checkpoint_to_yolo(model, ckpt_path):
 
 def compute_coco_stats(cfg, metric_stats):
     # Compute metrics
-    # p, r, f1, mp, mr, map50, map = 0., 0., 0., 0., 0., 0., 0.
-    # ap, ap_class = metric_stats.avg_precis, metric_stats.avg_precis_class
-    # stats = metric_stats.pred_stats
-    # stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     metric_stats.pred_stats = [np.concatenate(x, 0) for x in zip(*metric_stats.pred_stats)]  # to numpy
     stats = metric_stats.pred_stats
     seen = metric_stats.seen
@@ -117,8 +110,6 @@ def compute_coco_stats(cfg, metric_stats):
         # ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
         metric_stats.ap50 = metric_stats.ap[:, 0]
         metric_stats.ap = metric_stats.ap.mean(1)
-        # mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
-        # metric_stats.set_mean_stats(metric_stats.precision, metric_stats.recall, ap50, ap)
         metric_stats.set_mean_stats()
     nt = np.bincount(stats[3].astype(int), minlength=nc)  # number of targets per class
 
@@ -126,7 +117,6 @@ def compute_coco_stats(cfg, metric_stats):
     title = ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'P', 'R', 'mAP50', 'mAP50-95')
     pf = '{:20s}' + '{:12d}' * 2 + '{:12.3g}' * 4  # print format
     LOGGER.info(title)
-    # print(pf.format('all', seen, nt.sum(), mp, mr, map50, map))
     LOGGER.info(pf.format('all', seen, nt.sum(), *metric_stats.get_mean_stats()))
 
     # Print results per class
@@ -225,6 +215,17 @@ def compute_metrics(img, targets, out, paths, shapes, cfg, metric_stats):
         # if save_json:
         if cfg.save_json:
             save_one_json(predn, metric_stats.pred_json, path, cfg.class_map)  # append to COCO-JSON dictionary
+
+
+def write_map(coco_result, cfg, data):
+    s = f"\n{len(glob.glob(os.path.join(cfg.save_dir, 'labels/*.txt')))} labels saved to " \
+        f"{os.path.join(cfg.save_dir, 'labels')}" if cfg.save_txt else ''
+    LOGGER.info(f"Results saved to {cfg.save_dir}, {s}")
+    with open("class_map.txt", "w") as file:
+        file.write(f"COCO map:\n{coco_result.stats_str}\n")
+        if coco_result.category_stats_strs:
+            for idx, category_str in enumerate(coco_result.category_stats_strs):
+                file.write(f"\nclass {data['names'][idx]}:\n{category_str}\n")
 
 
 class COCOResult:
@@ -380,7 +381,6 @@ def test(data,
     cfg.save_txt = save_txt
     cfg.plots = plots
     cfg.single_cls = single_cls
-    synchronize = Synchronize(rank_size) if is_distributed else None
     project_dir = os.path.join(opt.project, f"epoch_{cur_epoch}")
     save_dir = os.path.join(project_dir, f"save_dir_{rank}")
     save_dir = increment_path(save_dir, exist_ok=opt.exist_ok)
@@ -441,7 +441,6 @@ def test(data,
     cfg.class_map = coco80_to_coco91_class() if is_coco else list(range(start_idx, 1000 + start_idx))
 
     loss = np.zeros(3)
-    # jdict, stats, ap, ap_class = [], [], [], []
     callbacks.run('on_val_start')
     step_start_time = time.time()
     for batch_i, meta in enumerate(data_loader):
@@ -481,7 +480,7 @@ def test(data,
                                   iou_thres,
                                   labels=lb,
                                   multi_label=True,
-                                  agnostic=single_cls)
+                                  agnostic=cfg.single_cls)
         nms_duration = time.time() - nms_start_time
         time_stats.total_nms_duration += nms_duration
 
@@ -524,12 +523,12 @@ def test(data,
 
     coco_result = COCOResult()
     # Save JSON
-    if save_json and len(metric_stats.pred_json):
+    if cfg.save_json and len(metric_stats.pred_json):
         w = Path(weights).stem if weights is not None else ''  # weights
         data_dir = Path(data["val"]).parent
         anno_json = os.path.join(data_dir, "annotations/instances_val2017.json")
-        if opt.transfer_format and not os.path.exists(
-                anno_json):  # data format transfer if annotations does not exists
+        if opt.transfer_format and not os.path.exists(anno_json):
+            # data format transfer if annotations does not exists
             LOGGER.info("Transfer annotations from yolo to coco format.")
             transformer = YOLO2COCO(data_dir, output_dir=data_dir,
                                     class_names=data["names"], class_map=cfg.class_map,
@@ -539,54 +538,31 @@ def test(data,
         LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
         with open(pred_json_path, 'w') as f:
             json.dump(metric_stats.pred_json, f)
-        sync_tmp_file = os.path.join(project_dir, 'sync_file.tmp')
-        if is_distributed:
-            if rank == 0:
-                LOGGER.info(f"Create sync temp file at path {sync_tmp_file}")
-                os.mknod(sync_tmp_file)
-            synchronize()
-            # Merge multiple results files
+        with SynchronizeManager(rank, rank_size, is_distributed, project_dir):
             if rank == 0:
                 LOGGER.info("Merge detection results...")
                 pred_json_path, merged_results = merge_json(project_dir, prefix=w)
-        try:
-            if rank == 0 and (opt.result_view or opt.recommend_threshold):
-                LOGGER.info("Start visualization result.")
-                view_result(anno_json, pred_json_path, data["val"], score_threshold=None,
-                            recommend_threshold=opt.recommend_threshold)
-                LOGGER.info("Visualization result completed.")
-        except Exception as e:
-            LOGGER.exception("Failed when visualize evaluation result.")
-
-        try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
-            if rank == 0:
-                LOGGER.info("Start evaluating mAP...")
-                coco_result = coco_eval(anno_json,
-                                        merged_results if is_distributed else metric_stats.pred_json,
-                                        dataset, is_coco)
-                LOGGER.info("Finish evaluating mAP.")
-                LOGGER.info(f"\nCOCO mAP:\n{coco_result.stats_str}")
-                if os.path.exists(sync_tmp_file):
-                    LOGGER.info(f"Delete sync temp file at path {sync_tmp_file}")
-                    os.remove(sync_tmp_file)
-            else:
-                LOGGER.info(f"Waiting for rank [0] device...")
-                while os.path.exists(sync_tmp_file):
-                    time.sleep(1)
-                LOGGER.info(f"Rank [{rank}] continue executing.")
-        except Exception as e:
-            LOGGER.exception("Exception when running pycocotools")
+                if opt.result_view or opt.recommend_threshold:
+                    try:
+                        LOGGER.info("Start visualization result.")
+                        view_result(anno_json, pred_json_path, data["val"], score_threshold=None,
+                                    recommend_threshold=opt.recommend_threshold)
+                        LOGGER.info("Visualization result completed.")
+                    except Exception as e:
+                        LOGGER.exception("Failed when visualize evaluation result.")
+                try:
+                    LOGGER.info("Start evaluating mAP...")
+                    coco_result = coco_eval(anno_json,
+                                            merged_results if is_distributed else metric_stats.pred_json,
+                                            dataset, is_coco)
+                    LOGGER.info("Finish evaluating mAP.")
+                    LOGGER.info(f"\nCOCO mAP:\n{coco_result.stats_str}")
+                except Exception as e:
+                    LOGGER.exception("Exception when running pycocotools")
 
     # Return results
     if not cfg.training:
-        s = f"\n{len(glob.glob(os.path.join(cfg.save_dir, 'labels/*.txt')))} labels saved to " \
-            f"{os.path.join(cfg.save_dir, 'labels')}" if cfg.save_txt else ''
-        LOGGER.info(f"Results saved to {cfg.save_dir}, {s}")
-        with open("class_map.txt", "w") as file:
-            file.write(f"COCO map:\n{coco_result.stats_str}\n")
-            if coco_result.category_stats_strs:
-                for idx, category_str in enumerate(coco_result.category_stats_strs):
-                    file.write(f"\nclass {data['names'][idx]}:\n{category_str}\n")
+        write_map(coco_result, cfg, data)
     maps = np.zeros(cfg.nc) + coco_result.get_map()
     for i, c in enumerate(metric_stats.ap_class):
         maps[c] = metric_stats.ap[i]

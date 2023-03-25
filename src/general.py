@@ -1,10 +1,10 @@
+import os
 import re
 import glob
 import math
 import time
 import numpy as np
 import threading
-from typing import Callable
 from pathlib import Path
 import pkg_resources as pkg
 
@@ -292,61 +292,6 @@ class Synchronize:
             )
 
 
-class MasterWrapper:
-    """
-        This is a function wrapper for distributed training or test.
-        The wrapped function will only be executed on master device, (e.g. rank % 8 == 0)
-        and the other devices would wait for master device to finish function execution.
-        The wrapper will call Synchronize class, which will call AllReduce op for barrier synchronization,
-        then the wrapper will create a file to force slave devices to wait for master device.
-        After finish function execution, the created file will be removed.
-
-        Args:
-        rank (int): Rank index of current device.
-        rank_size (int): Rank size of all devices.
-        is_distributed (bool): Whether program is running on distributed.
-        sync_file (str): File path where to create file for synchronization.
-        func (Callable): Function which would be wrapped.
-    """
-    def __init__(self, rank: int, rank_size: int, is_distributed: bool, sync_file: str, func: Callable):
-        self.rank = rank
-        self.rank_size = rank_size
-        self.is_distributed = is_distributed
-        self.sync_file = Path(sync_file)
-        self.sync = Synchronize(rank_size) if is_distributed else None
-        self.func = func
-        self._results = None # Save function results
-
-    def create_sync_file(self):
-        if self.is_distributed and (self.rank % 8 == 0):
-            print(f"[INFO] Create sync temp file at path {self.sync_file}", flush=True)
-            self.sync_file.touch(exist_ok=False)
-
-    def delete_sync_file(self):
-        if self.is_distributed and (self.rank % 8 == 0) and self.sync_file.exists():
-            print(f"[INFO] Delete sync temp file at path {self.sync_file}", flush=True)
-            self.sync_file.unlink(missing_ok=False)
-
-    def __call__(self, *args, **kwargs):
-        self.create_sync_file()
-        if self.sync is not None:
-            self.sync()
-        if self.rank % 8 == 0:
-            print(f"[INFO] Rank [{self.rank}] device begins running function {self.func.__name__}...", flush=True)
-            self._results = self.func(*args, **kwargs)
-            print(f"[INFO] Rank [{self.rank}] device finishes running function {self.func.__name__}", flush=True)
-            self.delete_sync_file()
-        else:
-            print(f"[INFO] Rank [{self.rank}] device waiting device [0] "
-                  f"running function {self.func.__name__}...", flush=True)
-            while self.sync_file.exists():
-                time.sleep(1)
-            print(f"[INFO] Rank [{self.rank}] continue execution.", flush=True)
-
-    def get_result(self):
-        return self._results
-
-
 def methods(instance):
     # Get class/instance methods
     return [f for f in dir(instance) if callable(getattr(instance, f)) and not f.startswith('__')]
@@ -531,3 +476,32 @@ class COCOEval(COCOeval):
                 category_stat, category_stats_str = summarize(categoryId=category_id)
                 self.category_stats.append(category_stat)
                 self.category_stats_strs.append(category_stats_str)
+
+
+class SynchronizeManager:
+    def __init__(self, rank, rank_size, distributed, project_dir):
+        self.rank = rank
+        self.rank_size = rank_size
+        self.distributed = distributed  # whether distributed or not
+        self.sync = Synchronize(rank_size) if (distributed and rank_size > 1) else None
+        self.sync_file = os.path.join(project_dir, 'sync_file.temp')
+
+    def __enter__(self):
+        if self.distributed:
+            if self.rank == 0:
+                LOGGER.info(f"Create sync file {self.sync_file}")
+                os.mknod(self.sync_file)
+            if self.sync is not None:
+                self.sync()
+        return self.sync_file
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.rank == 0:
+            if os.path.exists(self.sync_file):
+                LOGGER.info(f"Delete sync file {self.sync_file}")
+                os.remove(self.sync_file)
+        else:
+            LOGGER.info(f"Waiting for rank [0] device...")
+            while os.path.exists(self.sync_file):
+                time.sleep(1)
+            LOGGER.info(f"Rank [{self.rank}] continue executing.")
