@@ -89,7 +89,7 @@ def set_logger(logger: logging.Logger, level=logging.INFO, filename=None):
 
 
 def get_logger(rank=None):
-    rank = int(os.getenv("RANK_ID", "-1")) if rank is None else rank
+    rank = int(os.getenv("RANK_ID", "0")) if rank is None else rank
     name = LOGGING_NAME if rank == -1 else f"{LOGGING_NAME}_{rank}"
     logger = logging.getLogger(name)
     return logger

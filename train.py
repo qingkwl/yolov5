@@ -126,7 +126,7 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
     ms.load_param_into_net(infer_model, param_dict)
     del param_dict
     infer_model.set_train(False)
-    info, _, _, stats_str, category_stats, category_stats_str = \
+    metric_stats, _, _, coco_result = \
         test(opt.data,
              opt.weights,
              opt.batch_size,
@@ -153,7 +153,7 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
              opt=opt,
              cur_epoch=cur_epoch)
     infer_model.set_train(True)
-    return info, stats_str, category_stats, category_stats_str
+    return coco_result
 
 
 def save_ema(ema, ema_ckpt_path, append_dict=None):
@@ -182,7 +182,7 @@ def train(hyp, opt):
         from src.modelarts import sync_data
         os.makedirs(opt.data_dir, exist_ok=True)
         sync_data(opt.data_url, opt.data_dir)
-
+    rank, rank_size = opt.rank, opt.rank_size
     save_dir, epochs, batch_size, total_batch_size, weights, rank, freeze = \
         opt.save_dir, opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.rank, opt.freeze
 
@@ -373,22 +373,23 @@ def train(hyp, opt):
                        ((cur_epoch >= opt.eval_start_epoch) and (cur_epoch % opt.eval_epoch_interval) == 0)
 
             if opt.run_eval and is_eval_epoch():
-                eval_results, stats_str, category_stats, category_stats_str = \
-                    val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
-                mean_ap = eval_results[3]
+                # eval_results, stats_str, category_stats, category_stats_str = \
+                coco_result = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
+                # mean_ap = eval_results[3]
+                mean_avg_precis = coco_result.get_map()
                 if opt.summary and summary_record is not None:
-                    summary_record.add_value('scalar', 'map', ms.Tensor(mean_ap))
+                    summary_record.add_value('scalar', 'map', ms.Tensor(mean_avg_precis))
                     summary_record.record(cur_epoch * steps_per_epoch)
                 if rank % 8 == 0:
                     model_name = Path(opt.cfg).stem  # delete ".yaml" suffix
                     map_str_path = os.path.join(wdir, f"{model_name}_{cur_epoch}_map.txt")
                     with open(map_str_path, 'w') as file:
-                        file.write(f"COCO API:\n{stats_str}\n")
-                        if category_stats_str is not None:
-                            for idx, category_str in enumerate(category_stats_str):
-                                file.write(f"class {names[idx]}:\n{category_str}\n")
-                    if mean_ap > best_map:
-                        best_map = mean_ap
+                        file.write(f"COCO API:\n{coco_result.stats_str}\n")
+                        if coco_result.category_stats_strs is not None:
+                            for idx, category_str in enumerate(coco_result.category_stats_strs):
+                                file.write(f"\nclass {names[idx]}:\n{category_str}\n")
+                    if mean_avg_precis > best_map:
+                        best_map = mean_avg_precis
                         print(f"[INFO] Best result: Best mAP [{best_map}] at epoch [{cur_epoch}]", flush=True)
                         # save the best checkpoint
                         ckpt_path = os.path.join(wdir, f"{model_name}_best.ckpt")
@@ -411,7 +412,7 @@ def train(hyp, opt):
     return 0
 
 
-if __name__ == '__main__':
+def main():
     parser = get_args_train()
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('coco.yaml')
@@ -436,8 +437,7 @@ if __name__ == '__main__':
                                           all_reduce_fusion_config=[10, 70, 130, 190, 250, 310])
 
     opt.total_batch_size = opt.batch_size
-    opt.rank_size = rank_size
-    opt.rank = rank
+    opt.rank, opt.rank_size = rank, rank_size
     if rank_size > 1:
         assert opt.batch_size % opt.rank_size == 0, '--batch-size must be multiple of device count'
         opt.batch_size = opt.total_batch_size // opt.rank_size
@@ -454,7 +454,11 @@ if __name__ == '__main__':
         print(f"[INFO] OPT: {opt}")
         train(hyp, opt)
     else:
-        raise NotImplementedError("Not support evolve train;")
+        raise NotImplementedError("Not support evolve train")
 
     if opt.profiler:
         profiler.analyse()
+
+
+if __name__ == '__main__':
+    main()
