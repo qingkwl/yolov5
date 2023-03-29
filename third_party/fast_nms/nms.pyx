@@ -32,7 +32,7 @@ def nms(
     cdef np.ndarray[np.int_t, ndim=1] order = scores.argsort()[::-1]
 
     cdef int ndets = xyxys.shape[0]
-    cdef np.ndarray[np.int_t, ndim=1] suppressed = np.zeros(ndets, dtype=np.int32)
+    cdef np.ndarray[np.int32_t, ndim=1] suppressed = np.zeros(ndets, dtype=np.int32)
 
     # nominal indices
     cdef int _i, _j
