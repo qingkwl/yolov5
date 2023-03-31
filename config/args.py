@@ -146,6 +146,27 @@ def get_args_test():
     return parser
 
 
+def get_args_infer():
+    parser = argparse.ArgumentParser(prog='infer.py')
+    parser.add_argument('--ms_mode', type=str, default='graph', help='train mode, graph/pynative')
+    parser.add_argument('--device_target', type=str, default='Ascend', help='device target, Ascend/GPU/CPU')
+    parser.add_argument('--om', type=str, default='yolov5s.om', help='model.om path')
+    parser.add_argument('--rect', type=ast.literal_eval, default=False, help='rectangular training')
+    parser.add_argument('--data', type=str, default='config/data/coco.yaml', help='*.data path')
+    parser.add_argument('--cfg', type=str, default='config/network/yolov5s.yaml', help='model.yaml path')
+    parser.add_argument('--hyp', type=str, default='config/data/hyp.scratch-low.yaml', help='hyperparameters path')
+    parser.add_argument('--batch_size', type=int, default=32, help='size of each image batch')
+    parser.add_argument('--img_size', type=int, default=640, help='inference size (pixels)')
+    parser.add_argument('--conf_thres', type=float, default=0.001, help='object confidence threshold')
+    parser.add_argument('--iou_thres', type=float, default=0.65, help='IOU threshold for NMS')
+    parser.add_argument('--task', default='val', help='train, val, test, speed or study')
+    parser.add_argument('--single_cls', action='store_true', help='treat as single-class dataset')
+    parser.add_argument('--augment', action='store_true', help='augmented inference')
+    parser.add_argument('--verbose', action='store_true', help='report mAP by class')
+    parser.add_argument('--output_dir', type=str, default='./output', help='Folder path to save prediction json')
+    return parser
+
+
 def get_args_export():
     parser = argparse.ArgumentParser(prog='export.py')
     parser.add_argument('--ms_mode', type=str, default='graph', help='train mode, graph/pynative')

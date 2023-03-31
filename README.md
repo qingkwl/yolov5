@@ -15,6 +15,8 @@
         - [Distributed Training](#distributed-training)
     - [Evaluation Process](#evaluation-process)
         - [Evaluation](#evaluation)
+    - [Infer Process](#Infer-process)
+        - [Infer](#Infer) 
 - [Model Description](#model-description)
 - [Performance](#performance)  
 
@@ -347,6 +349,22 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
      -h ../config/data/hyp.scratch-low.yaml
 ```
 
+
+## [Infer Process](#contents)
+
+### [Infer](#contents)
+
+The model of `ckpt` format can be transformed to `om` format by `atc` tool for doing inference on inference server.
+
+1. Export model with `AIR` format：
+  `python export.py --weights /path/to/model.ckpt --file_format AIR`;
+2. Transform model with `AIR` format to `om` format by `atc` tool：
+  `/usr/local/Ascend/lates/atc/bin/atc --model=yolov5s.om --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
+  the `--soc_version` option can be got by `npu-smi info` command. Supported option choices are `Ascend310`，`Ascend310P3`;
+3. Infer by executing `infer.py` script：`python infer.py --batch_size 1 --om yolov5s.om`
+
+
+
 # [Model Description](#contents)
 
 ## [Performance](#contents)
@@ -358,3 +376,6 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 | YOLOv5m | 640                   | 0.452                             | 0.638                          | 0.451                              | 0.636                           | 133           |
 | YOLOv5l | 640                   |                                   |                                |                                    |                                 | 163           |
 | YOLOv5x | 640                   |                                   |                                |                                    |                                 | 221           |
+
+Note：
+1. The result of 'Epoch Time' is evaluated on Ascend 910A with batch_size 32 per device.
