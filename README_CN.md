@@ -13,6 +13,8 @@
     - [训练过程](#训练过程)
         - [训练](#训练)
         - [分布式训练](#分布式训练)
+    - [验证过程](#验证过程)
+        - [验证](#验证)
     - [推理过程](#推理过程)
         - [推理](#推理)
 - [模型说明](#模型说明)
@@ -302,9 +304,9 @@ bash mpirun_train.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.ya
 ```
 
 
-## [推理过程](#目录)
+## [验证过程](#目录)
 
-### 推理
+### 验证
 
 在运行以下命令之前，请检查用于推理的 Checkpoint 文件是否存在，名称是否正确。
 
@@ -340,6 +342,19 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
      -h ../config/data/hyp.scratch-low.yaml
 ```
 
+## [推理过程](#目录)
+
+### [推理](#目录)
+
+训练获得的模型 `ckpt` 可用 `atc` 工具转换为 `om` 格式的模型，在推理服务器上执行推理。
+
+1. 导出 `AIR` 格式的模型：
+  `python export.py --weights /path/to/model.ckpt --file_format AIR`；
+2. 使用 `atc` 工具将 `AIR` 格式模型转换为 `om` 格式：
+  `/usr/local/Ascend/lates/atc/bin/atc --model=yolov5s.om --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
+  其中 `--soc_version` 可通过 `npu-smi info` 指令查看，支持 `Ascend310`，`Ascend310P3` 等；
+3. 通过 `infer.py` 脚本执行推理：`python infer.py --batch_size 1 --om yolov5s.om`
+
 # [模型说明](#目录)
 
 ## [性能](#目录)
@@ -351,3 +366,6 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 | YOLOv5m | 640                   | 0.452                             | 0.638                          | 0.451                              | 0.636                           | 133           |
 | YOLOv5l | 640                   |                                   |                                |                                    |                                 | 163           |
 | YOLOv5x | 640                   |                                   |                                |                                    |                                 | 221           |
+
+注：
+1. Epoch Time 为 Ascend 910A 机器的测试结果，每张卡的 batch_size 为 32。
