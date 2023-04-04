@@ -18,7 +18,7 @@ from src.general import LOGGER
 from src.network.yolo import Model
 from config.args import get_args_test
 from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
-    colorstr, box_iou, increment_path, Callbacks, SynchronizeManager, AllReduce
+    colorstr, box_iou, increment_path, Callbacks, SynchronizeManager, AllReduce, Synchronize
 from src.general import COCOEval as COCOeval
 from src.dataset import create_dataloader
 from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
@@ -29,6 +29,115 @@ from third_party.yolo2coco.yolo2coco import YOLO2COCO
 class Dict(dict):
     __setattr__ = dict.__setitem__
     __getattr__ = dict.__getitem__
+
+
+class COCOResult:
+    def __init__(self, eval_result=None):
+        if eval_result is not None:
+            self.stats = eval_result.stats # np.ndarray
+            self.stats_str = eval_result.stats_str  # str
+            self.category_stats = eval_result.category_stats    # List[np.ndarray]
+            self.category_stats_strs = eval_result.category_stats_strs    # List[str]
+        else:
+            self.stats = None
+            self.stats_str = ''
+            self.category_stats = []
+            self.category_stats_strs = []
+
+    def get_map(self):
+        if self.stats is None:
+            return -1
+        return self.stats[0]
+
+    def get_map50(self):
+        if self.stats is None:
+            return -1
+        return self.stats[1]
+
+
+class MetricStatistics:
+    def __init__(self):
+        self.mp = 0.        # mean precision
+        self.mr = 0.        # mean recall
+        self.map50 = 0.     # mAP@50
+        self.map = 0.       # mAP@50:95
+        self.loss_box = 0.
+        self.loss_obj = 0.
+        self.loss_cls = 0.
+
+        self.pred_json = []
+        self.pred_stats = []
+        self.tp = 0.    # true positive
+        self.fp = 0.    # false positive
+        self.precision = 0.
+        self.recall = 0.
+        self.f1 = 0.
+        self.ap = []        # average precision(AP)
+        self.ap50 = []      # average precision@50(AP@50)
+        self.ap_class = []  # average precision(AP) of each class
+
+        self.seen = 0
+        self.confusion_matrix = None
+
+        self.iouv = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
+        self.niou = np.prod(self.iouv.shape)
+
+    def __iter__(self):
+        for name, val in vars(self).items():
+            yield val
+
+    def set_loss(self, loss):
+        self.loss_box, self.loss_obj, self.loss_cls = loss.tolist()
+
+    def get_loss_tuple(self):
+        return self.loss_box, self.loss_obj, self.loss_cls
+
+    def set_mean_stats(self):
+        self.mp = self.precision.mean()
+        self.mr = self.recall.mean()
+        self.map50 = self.ap50.mean()
+        self.map = self.ap.mean()
+
+    def get_mean_stats(self):
+        return self.mp, self.mr, self.map50, self.map
+
+    def set_ap_per_class(self, result):
+        # result: return value of ap_per_class() function
+        self.tp, self.fp = result[:2]
+        self.precision, self.recall, self.f1 = result[2:5]
+        self.ap = result[5]
+        self.ap_class = result[6]
+
+    def get_ap_per_class(self, idx):
+        return self.precision[idx], self.recall[idx], self.ap50[idx], self.ap[idx]
+
+
+class TimeStatistics:
+    def __init__(self):
+        self.total_infer_duration = 0.
+        self.total_nms_duration = 0.
+        self.total_metric_duration = 0.
+
+    def total_duration(self):
+        return self.total_infer_duration + self.total_nms_duration + self.total_metric_duration
+
+    def get_tuple(self):
+        return self.total_infer_duration, self.total_nms_duration, self.total_metric_duration, self.total_duration()
+
+
+class Config:
+    def __init__(self):
+        self.nc = 0
+        self.names = {}
+        self.verbose = False
+        self.training = False
+        self.save_conf = False
+        self.save_json = False
+        self.save_txt = False
+        self.plots = False
+        self.save_dir = ''
+        self.class_map = []
+        self.single_cls = False
 
 
 def save_one_json(predn, jdict, path, class_map):
@@ -92,9 +201,29 @@ def load_checkpoint_to_yolo(model, ckpt_path):
     LOGGER.info(f"load ckpt from \"{ckpt_path}\" success.")
 
 
-def compute_coco_stats(cfg, metric_stats):
+def compute_coco_stats(cfg, rank, rank_size, metric_stats: MetricStatistics):
+    synchronize = Synchronize(rank_size)
+    reduce_sum = AllReduce()
+    project_dir = Path(cfg.save_dir).parent
     # Compute metrics
     metric_stats.pred_stats = [np.concatenate(x, 0) for x in zip(*metric_stats.pred_stats)]  # to numpy
+    pred_stats_file = os.path.join(cfg.save_dir, f"pred_stats_{rank}.npy")
+    np.save(pred_stats_file, np.array(metric_stats.pred_stats, dtype=object), allow_pickle=True)
+    metric_stats.seen = reduce_sum(ms.Tensor(np.array(metric_stats.seen, dtype=np.int32))).asnumpy()
+    synchronize()
+    if rank != 0:
+        return
+
+    # Merge prediction stats
+    pred_stats = [[] for _ in range(len(metric_stats.pred_stats))]
+    for file_path in project_dir.rglob("pred_stats*.npy"):
+        stats = np.load(str(file_path.resolve()), allow_pickle=True)
+        for i, item in enumerate(stats):
+            pred_stats[i].append(item)
+
+    pred_stats = [np.concatenate(item, axis=0) for item in pred_stats]
+    metric_stats.pred_stats = pred_stats
+
     stats = metric_stats.pred_stats
     seen = metric_stats.seen
     names = cfg.names
@@ -226,115 +355,6 @@ def write_map(coco_result, cfg, data):
         if coco_result.category_stats_strs:
             for idx, category_str in enumerate(coco_result.category_stats_strs):
                 file.write(f"\nclass {data['names'][idx]}:\n{category_str}\n")
-
-
-class COCOResult:
-    def __init__(self, eval_result=None):
-        if eval_result is not None:
-            self.stats = eval_result.stats # np.ndarray
-            self.stats_str = eval_result.stats_str  # str
-            self.category_stats = eval_result.category_stats    # List[np.ndarray]
-            self.category_stats_strs = eval_result.category_stats_strs    # List[str]
-        else:
-            self.stats = None
-            self.stats_str = ''
-            self.category_stats = []
-            self.category_stats_strs = []
-
-    def get_map(self):
-        if self.stats is None:
-            return -1
-        return self.stats[0]
-
-    def get_map50(self):
-        if self.stats is None:
-            return -1
-        return self.stats[1]
-
-
-class MetricStatistics:
-    def __init__(self):
-        self.mp = 0.        # mean precision
-        self.mr = 0.        # mean recall
-        self.map50 = 0.     # mAP@50
-        self.map = 0.       # mAP@50:95
-        self.loss_box = 0.
-        self.loss_obj = 0.
-        self.loss_cls = 0.
-
-        self.pred_json = []
-        self.pred_stats = []
-        self.tp = 0.    # true positive
-        self.fp = 0.    # false positive
-        self.precision = 0.
-        self.recall = 0.
-        self.f1 = 0.
-        self.ap = []        # average precision(AP)
-        self.ap50 = []      # average precision@50(AP@50)
-        self.ap_class = []  # average precision(AP) of each class
-
-        self.seen = 0
-        self.confusion_matrix = None
-
-        self.iouv = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
-        self.niou = np.prod(self.iouv.shape)
-
-    def __iter__(self):
-        for name, val in vars(self).items():
-            yield val
-
-    def set_loss(self, loss):
-        self.loss_box, self.loss_obj, self.loss_cls = loss.tolist()
-
-    def get_loss_tuple(self):
-        return self.loss_box, self.loss_obj, self.loss_cls
-
-    def set_mean_stats(self):
-        self.mp = self.precision.mean()
-        self.mr = self.recall.mean()
-        self.map50 = self.ap50.mean()
-        self.map = self.ap.mean()
-
-    def get_mean_stats(self):
-        return self.mp, self.mr, self.map50, self.map
-
-    def set_ap_per_class(self, result):
-        # result: return value of ap_per_class() function
-        self.tp, self.fp = result[:2]
-        self.precision, self.recall, self.f1 = result[2:5]
-        self.ap = result[5]
-        self.ap_class = result[6]
-
-    def get_ap_per_class(self, idx):
-        return self.precision[idx], self.recall[idx], self.ap50[idx], self.ap[idx]
-
-
-class TimeStatistics:
-    def __init__(self):
-        self.total_infer_duration = 0.
-        self.total_nms_duration = 0.
-        self.total_metric_duration = 0.
-
-    def total_duration(self):
-        return self.total_infer_duration + self.total_nms_duration + self.total_metric_duration
-
-    def get_tuple(self):
-        return self.total_infer_duration, self.total_nms_duration, self.total_metric_duration, self.total_duration()
-
-
-class Config:
-    def __init__(self):
-        self.nc = 0
-        self.names = {}
-        self.verbose = False
-        self.training = False
-        self.save_conf = False
-        self.save_json = False
-        self.save_txt = False
-        self.plots = False
-        self.save_dir = ''
-        self.class_map = []
-        self.single_cls = False
 
 
 def test(data,
@@ -504,7 +524,7 @@ def test(data,
                     f"Metric {metric_duration * 1e3:.2f}ms")
         step_start_time = time.time()
 
-    compute_coco_stats(cfg, metric_stats)
+    compute_coco_stats(cfg, rank, rank_size, metric_stats)
 
     # Print speeds
     total_time_fmt_str = 'Total time: {:.1f}/{:.1f}/{:.1f}/{:.1f} s ' \
@@ -519,7 +539,7 @@ def test(data,
 
     # Plots
     if cfg.plots:
-        matrix = ms.Tensor(metric_stats.confusion_matrix.matrix())
+        matrix = ms.Tensor(metric_stats.confusion_matrix.matrix)
         matrix = AllReduce()(matrix).asnumpy()
         metric_stats.confusion_matrix.matrix = matrix
         if rank == 0:
