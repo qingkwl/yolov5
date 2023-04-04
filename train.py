@@ -8,7 +8,7 @@ from contextlib import nullcontext
 
 import yaml
 import numpy as np
-
+import albumentations
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
