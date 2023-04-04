@@ -18,7 +18,7 @@ from src.general import LOGGER
 from src.network.yolo import Model
 from config.args import get_args_test
 from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
-    colorstr, box_iou, increment_path, Callbacks, SynchronizeManager
+    colorstr, box_iou, increment_path, Callbacks, SynchronizeManager, AllReduce
 from src.general import COCOEval as COCOeval
 from src.dataset import create_dataloader
 from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
@@ -519,7 +519,11 @@ def test(data,
 
     # Plots
     if cfg.plots:
-        metric_stats.confusion_matrix.plot(save_dir=cfg.save_dir, names=list(cfg.names.values()))
+        matrix = ms.Tensor(metric_stats.confusion_matrix.matrix())
+        matrix = AllReduce()(matrix).asnumpy()
+        metric_stats.confusion_matrix.matrix = matrix
+        if rank == 0:
+            metric_stats.confusion_matrix.plot(save_dir=cfg.save_dir, names=list(cfg.names.values()))
 
     coco_result = COCOResult()
     # Save JSON

@@ -270,7 +270,7 @@ def all_finite_cpu(inputs):
 class AllReduce(nn.Cell):
     def __init__(self):
         super(AllReduce, self).__init__()
-        self.all_reduce = ops.AllReduce()
+        self.all_reduce = ops.AllReduce(op=ops.ReduceOp.SUM)
 
     def construct(self, x):
         return self.all_reduce(x)
