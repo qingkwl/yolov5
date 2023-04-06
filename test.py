@@ -462,6 +462,55 @@ class TestManager:
         nms_duration = time.time() - nms_start_time
         return out, nms_duration
 
+    def _compute_metrics(self, img, targets, out, paths, shapes, metric_stats: MetricStatistics):
+        metric_stats.confusion_matrix = ConfusionMatrix(nc=self.dataset_cfg['nc'])
+        iouv = metric_stats.iouv
+        niou = metric_stats.niou
+        opt = self.opt
+        single_cls = opt.single_cls
+        metric_start_time = time.time()
+        for si, pred in enumerate(out):
+            labels = targets[targets[:, 0] == si, 1:]
+            nl, npr, shape = labels.shape[0], pred.shape[0], shapes[si][0]  # number of labels, predictions
+            if type(paths[si]) is np.ndarray or type(paths[si]) is np.bytes_:
+                path = Path(str(codecs.decode(paths[si].tostring()).strip(b'\x00'.decode())))
+            else:
+                path = Path(paths[si])
+            correct = np.zeros((npr, niou)).astype(np.bool_)  # init
+            metric_stats.seen += 1
+
+            if npr == 0:
+                if nl:
+                    metric_stats.pred_stats.append((correct, *np.zeros((2, 0)).astype(np.bool_), labels[:, 0]))
+                    if opt.plots:
+                        metric_stats.confusion_matrix.process_batch(detections=None, labels=labels[:, 0])
+                continue
+
+            # Predictions
+            if single_cls:
+                pred[:, 5] = 0
+            predn = np.copy(pred)
+            predn[:, :4] = scale_coords(img[si].shape[1:], predn[:, :4], shape, shapes[si][1:])  # native-space pred
+
+            # Evaluate
+            if nl:
+                tbox = xywh2xyxy(labels[:, 1:5])  # target boxes
+                tbox = scale_coords(img[si].shape[1:], tbox, shape, shapes[si][1:])  # native-space labels
+                labelsn = np.concatenate((labels[:, 0:1], tbox), 1)  # native-space labels
+                correct = process_batch(predn, labelsn, iouv)
+                if opt.plots:
+                    metric_stats.confusion_matrix.process_batch(predn, labelsn)
+            # (correct, conf, pcls, tcls)
+            metric_stats.pred_stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))
+
+            # Save/log
+            if opt.save_txt:
+                save_one_txt(predn, opt.save_conf, shape, file=os.path.join(self.save_dir, 'labels', f'{path.stem}.txt'))
+            if opt.save_json:
+                save_one_json(predn, metric_stats.pred_json, path, self.cls_map)  # append to COCO-JSON dictionary
+        metric_duration = time.time() - metric_start_time
+        return metric_duration
+
     def _test(self, model, dataloader, per_epoch_size):
         opt = self.opt
         augment = self.opt.augment
@@ -469,7 +518,6 @@ class TestManager:
         loss = np.zeros(3)
         time_stats = TimeStatistics()
         metric_stats = MetricStatistics()
-        metric_stats.confusion_matrix = ConfusionMatrix(nc=dataset_cfg['nc'])
         step_start_time = time.time()
         for batch_idx, meta in enumerate(dataloader):
             img, targets, paths, shapes = meta["img"], meta["label_out"], meta["img_files"], meta["shapes"]
@@ -506,9 +554,7 @@ class TestManager:
             time_stats.total_nms_duration += nms_duration
 
             # Metrics
-            metric_start_time = time.time()
-            compute_metrics(img, targets, out, paths, shapes, opt, metric_stats)
-            metric_duration = time.time() - metric_start_time
+            metric_duration = self._compute_metrics(img, targets, out, paths, shapes, metric_stats)
             time_stats.total_metric_duration += metric_duration
             # Plot images
             if opt.plots and batch_idx < 3:
@@ -664,7 +710,7 @@ class TestManager:
         LOGGER.info(total_time_fmt_str.format(*total_time))
         return speed
 
-    def __call__(self, model=None, dataset=None, dataloader=None, cur_epoch=None):
+    def test(self, model=None, dataset=None, dataloader=None, cur_epoch=None):
         opt = self.opt
         self._create_dirs(cur_epoch)
         model = self._config_model(model)
@@ -1068,7 +1114,7 @@ def main_test():
         print("opt:", opt)
         opt.save_txt = opt.save_txt | opt.save_hybrid
     test_manager = TestManager(opt)
-    test_manager()
+    test_manager.test()
 
 
 if __name__ == '__main__':
