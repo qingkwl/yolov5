@@ -156,6 +156,29 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
     return coco_result
 
 
+def val_test(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
+    LOGGER.info("Evaluating...", flush=True)
+    param_dict = {}
+    if opt.ema:
+        LOGGER.info("ema parameter update", flush=True)
+        for p in ema.ema_weights:
+            name = p.name[len("ema."):]
+            param_dict[name] = p.data
+    else:
+        for p in model.get_parameters():
+            name = p.name
+            param_dict[name] = p.data
+
+    ms.load_param_into_net(infer_model, param_dict)
+    del param_dict
+    infer_model.set_train(False)
+    from test import TestManager
+    test_manager = TestManager(opt)
+    metric_stats, _, _, coco_result = test_manager.test(infer_model, val_dataset, val_dataloader, cur_epoch)
+    infer_model.set_train(True)
+    return coco_result
+
+
 def save_ema(ema, ema_ckpt_path, append_dict=None):
     params_list = []
     for p in ema.ema_weights:
@@ -374,7 +397,8 @@ def train(hyp, opt):
 
             if opt.run_eval and is_eval_epoch():
                 # eval_results, stats_str, category_stats, category_stats_str = \
-                coco_result = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
+                # coco_result = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
+                coco_result = val_test(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
                 # mean_ap = eval_results[3]
                 mean_avg_precis = coco_result.get_map()
                 if opt.summary and summary_record is not None:
