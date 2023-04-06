@@ -1,5 +1,41 @@
 import argparse
 import ast
+from argparse import Namespace
+
+
+class TestNamespace(Namespace):
+    ms_mode: str
+    distributed: bool
+    device_target: str
+    weights: str
+    rect: bool
+    data: str
+    cfg: str
+    hyp: str
+    batch_size: int
+    img_size: int
+    conf_thres: float
+    iou_thres: float
+    task: str
+    single_cls: bool
+    augment: bool
+    verbose: bool
+    save_txt: bool
+    save_hybrid: bool
+    save_conf: bool
+    save_json: bool
+    project: str
+    exist_ok: bool
+    trace: bool
+    plots: bool
+    v5_metric: bool
+    transfer_format: bool
+    result_view: bool
+    recommend_threshold: bool
+
+    rank: int
+    rank_size: int
+    parallel_mode: str
 
 
 def get_args_train():
@@ -42,7 +78,7 @@ def get_args_train():
     parser.add_argument('--nosave', type=ast.literal_eval, default=False, help='only save final checkpoint')
     parser.add_argument('--notest', type=ast.literal_eval, default=False, help='only test final epoch')
     parser.add_argument('--noautoanchor', type=ast.literal_eval, default=False, help='disable autoanchor check')
-    parser.add_argument('--noplots', type=ast.literal_eval, default=False, help='disable plot')
+    parser.add_argument('--plots', type=ast.literal_eval, default=False, help='enable plot')
     parser.add_argument('--evolve', type=ast.literal_eval, default=False, help='evolve hyperparameters')
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
     parser.add_argument('--cache_images', type=ast.literal_eval, default=False, help='cache images for faster training')
@@ -97,7 +133,7 @@ def get_args_train():
     parser.add_argument('--save_conf', action='store_true', help='save confidences in --save-txt labels')
     parser.add_argument('--save_json', type=ast.literal_eval, default=True,
                         help='save a cocoapi-compatible JSON results file')
-    parser.add_argument('--no_trace', action='store_true', help='don`t trace model')
+    parser.add_argument('--trace', type=ast.literal_eval, default=False, help='trace model')
     parser.add_argument('--transfer_format', type=ast.literal_eval, default=True,
                         help='whether transform data format to coco')
 
@@ -125,19 +161,23 @@ def get_args_test():
     parser.add_argument('--conf_thres', type=float, default=0.001, help='object confidence threshold')
     parser.add_argument('--iou_thres', type=float, default=0.6, help='IOU threshold for NMS')
     parser.add_argument('--task', default='val', help='train, val, test, speed or study')
-    parser.add_argument('--single_cls', action='store_true', help='treat as single-class dataset')
-    parser.add_argument('--augment', action='store_true', help='augmented inference')
-    parser.add_argument('--verbose', action='store_true', help='report mAP by class')
-    parser.add_argument('--save_txt', action='store_true', help='save results to *.txt')
-    parser.add_argument('--save_hybrid', action='store_true', help='save label+prediction hybrid results to *.txt')
-    parser.add_argument('--save_conf', action='store_true', help='save confidences in --save-txt labels')
+    parser.add_argument('--single_cls', type=ast.literal_eval, default=False, help='treat as single-class dataset')
+    parser.add_argument('--augment', type=ast.literal_eval, default=False, help='augmented inference')
+    parser.add_argument('--verbose', type=ast.literal_eval, default=False, help='report mAP by class')
+    parser.add_argument('--save_txt', type=ast.literal_eval, default=False, help='save results to *.txt')
+    parser.add_argument('--save_hybrid', type=ast.literal_eval, default=False,
+                        help='save label+prediction hybrid results to *.txt')
+    parser.add_argument('--save_conf', type=ast.literal_eval, default=False,
+                        help='save confidences in --save-txt labels')
     parser.add_argument('--save_json', type=ast.literal_eval, default=True,
                         help='save a cocoapi-compatible JSON results file')
-    parser.add_argument('--project', default='./run_test', help='save to project/name')
-    parser.add_argument('--exist_ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--no_trace', action='store_true', help='don`t trace model')
-    parser.add_argument('--noplots', type=ast.literal_eval, default=False, help='disable plot')
-    parser.add_argument('--v5_metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--project', type=str, default='./run_test', help='save to project/name')
+    parser.add_argument('--exist_ok', type=ast.literal_eval, default=True,
+                        help='existing project/name ok, do not increment')
+    parser.add_argument('--trace', type=ast.literal_eval, default=False, help='trace model')
+    parser.add_argument('--plots', type=ast.literal_eval, default=True, help='enable plot')
+    parser.add_argument('--v5_metric', type=ast.literal_eval, default=True,
+                        help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--transfer_format', type=ast.literal_eval, default=True,
                         help='whether transform data format to coco')
     parser.add_argument('--result_view', type=ast.literal_eval, default=False, help='view the eval result')
@@ -183,3 +223,15 @@ def get_args_export():
     # preprocess
     parser.add_argument('--output_path', type=str, default='./', help='output preprocess data path')
     return parser
+
+
+# if __name__ == "main":
+# parser = get_args_test()
+# eval_args = parser.parse_args(namespace=TestNamespace())
+# print("Eval args:")
+# # print(vars(eval_args))
+# from pprint import pprint, pformat
+# pprint(pformat(eval_args))
+# print(eval_args.batch_size)
+# eval_args.a = 0
+# print(eval_args.a)
