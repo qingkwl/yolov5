@@ -423,6 +423,7 @@ class TestManager:
             model.to_float(ms.float16)
 
         model.set_train(False)
+        return model
 
     def _config_dataset(self, dataset=None, dataloader=None):
         data_cfg = self.dataset_cfg
@@ -580,11 +581,10 @@ class TestManager:
             json.dump(pred_json, file)
 
     def _save_map(self, coco_result):
-        opt = self.opt
         dataset_cfg = self.dataset_cfg
-        s = f"\n{len(glob.glob(os.path.join(opt.save_dir, 'labels/*.txt')))} labels saved to " \
-            f"{os.path.join(opt.save_dir, 'labels')}" if opt.save_txt else ''
-        LOGGER.info(f"Results saved to {opt.save_dir}, {s}")
+        s = f"\n{len(glob.glob(os.path.join(self.save_dir, 'labels/*.txt')))} labels saved to " \
+            f"{os.path.join(self.save_dir, 'labels')}" if self.opt.save_txt else ''
+        LOGGER.info(f"Results saved to {self.save_dir}, {s}")
         with open("class_map.txt", "w") as file:
             file.write(f"COCO map:\n{coco_result.stats_str}\n")
             if coco_result.category_stats_strs:
@@ -667,7 +667,7 @@ class TestManager:
     def __call__(self, model=None, dataset=None, dataloader=None, cur_epoch=None):
         opt = self.opt
         self._create_dirs(cur_epoch)
-        self._config_model(model)
+        model = self._config_model(model)
         dataloader, dataset, per_epoch_size = self._config_dataset(dataset, dataloader)
         if opt.v5_metric:
             LOGGER.info("Testing with YOLOv5 AP metric...")
@@ -701,7 +701,7 @@ class TestManager:
             pred_json_path = os.path.join(self.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
             LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
             self._save_json(metric_stats.pred_json, pred_json_path)
-            with SynchronizeManager(opt.rank, opt.rank_size, opt.is_distributed, opt.project_dir):
+            with SynchronizeManager(opt.rank, opt.rank_size, opt.is_distributed, self.project_dir):
                 if opt.rank == 0:
                     pred_json_path, merged_results = self._merge_pred(prefix=ckpt_name)
                     if opt.result_view or opt.recommend_threshold:
