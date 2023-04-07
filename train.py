@@ -28,7 +28,7 @@ from src.dataset import create_dataloader
 from src.boost import build_train_network
 from src.optimizer import get_group_param, get_lr, YoloMomentum
 from src.general import increment_path, colorstr, labels_to_class_weights, check_file, check_img_size
-from test import test
+from test import TestManager
 
 LOGGER = get_logger()
 
@@ -109,51 +109,51 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
                                      sens=sens, enable_clip_grad=enable_clip_grad)
     return train_step
 
-
-def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
-    print("[INFO] Evaluating...", flush=True)
-    param_dict = {}
-    if opt.ema:
-        print("[INFO] ema parameter update", flush=True)
-        for p in ema.ema_weights:
-            name = p.name[len("ema."):]
-            param_dict[name] = p.data
-    else:
-        for p in model.get_parameters():
-            name = p.name
-            param_dict[name] = p.data
-
-    ms.load_param_into_net(infer_model, param_dict)
-    del param_dict
-    infer_model.set_train(False)
-    metric_stats, _, _, coco_result = \
-        test(opt.data,
-             opt.weights,
-             opt.batch_size,
-             opt.img_size,
-             opt.conf_thres,
-             opt.iou_thres,
-             opt.save_json,
-             opt.single_cls,
-             opt.augment,
-             opt.verbose,
-             model=infer_model,
-             dataloader=val_dataloader,
-             dataset=val_dataset,
-             save_txt=opt.save_txt | opt.save_hybrid,
-             save_hybrid=opt.save_hybrid,
-             save_conf=opt.save_conf,
-             trace=not opt.no_trace,
-             plots=not opt.noplots,
-             half_precision=False,
-             v5_metric=opt.v5_metric,
-             is_distributed=opt.is_distributed,
-             rank=opt.rank,
-             rank_size=opt.rank_size,
-             opt=opt,
-             cur_epoch=cur_epoch)
-    infer_model.set_train(True)
-    return coco_result
+#
+# def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
+#     print("[INFO] Evaluating...", flush=True)
+#     param_dict = {}
+#     if opt.ema:
+#         print("[INFO] ema parameter update", flush=True)
+#         for p in ema.ema_weights:
+#             name = p.name[len("ema."):]
+#             param_dict[name] = p.data
+#     else:
+#         for p in model.get_parameters():
+#             name = p.name
+#             param_dict[name] = p.data
+#
+#     ms.load_param_into_net(infer_model, param_dict)
+#     del param_dict
+#     infer_model.set_train(False)
+#     metric_stats, _, _, coco_result = \
+#         test(opt.data,
+#              opt.weights,
+#              opt.batch_size,
+#              opt.img_size,
+#              opt.conf_thres,
+#              opt.iou_thres,
+#              opt.save_json,
+#              opt.single_cls,
+#              opt.augment,
+#              opt.verbose,
+#              model=infer_model,
+#              dataloader=val_dataloader,
+#              dataset=val_dataset,
+#              save_txt=opt.save_txt | opt.save_hybrid,
+#              save_hybrid=opt.save_hybrid,
+#              save_conf=opt.save_conf,
+#              trace=not opt.no_trace,
+#              plots=not opt.noplots,
+#              half_precision=False,
+#              v5_metric=opt.v5_metric,
+#              is_distributed=opt.is_distributed,
+#              rank=opt.rank,
+#              rank_size=opt.rank_size,
+#              opt=opt,
+#              cur_epoch=cur_epoch)
+#     infer_model.set_train(True)
+#     return coco_result
 
 
 def val_test(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
@@ -172,7 +172,6 @@ def val_test(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoc
     ms.load_param_into_net(infer_model, param_dict)
     del param_dict
     infer_model.set_train(False)
-    from test import TestManager
     test_manager = TestManager(opt)
     metric_stats, _, _, coco_result = test_manager.test(infer_model, val_dataset, val_dataloader, cur_epoch)
     infer_model.set_train(True)
@@ -460,11 +459,11 @@ def main():
         context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size,
                                           all_reduce_fusion_config=[10, 70, 130, 190, 250, 310])
 
-    opt.total_batch_size = opt.batch_size
+    # opt.total_batch_size = opt.batch_size
     opt.rank, opt.rank_size = rank, rank_size
-    if rank_size > 1:
-        assert opt.batch_size % opt.rank_size == 0, '--batch-size must be multiple of device count'
-        opt.batch_size = opt.total_batch_size // opt.rank_size
+    # if rank_size > 1:
+    #     assert opt.batch_size % opt.rank_size == 0, '--batch-size must be multiple of device count'
+    #     opt.batch_size = opt.total_batch_size // opt.rank_size
 
     # Hyperparameters
     with open(opt.hyp) as f:

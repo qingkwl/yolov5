@@ -46,7 +46,7 @@ def run_export(opt):
     with open(opt.data) as f:
         data = yaml.load(f, Loader=yaml.SafeLoader)
     nc = int(data['nc'])  # number of classes
-    net = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), sync_bn=False)  # create
+    net = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors'), sync_bn=False, hyp=hyp)  # create
     assert isinstance(opt.weights, str) and opt.weights.endswith('.ckpt'), f"opt.weights is {opt.weights}"
     param_dict = ms.load_checkpoint(opt.weights)
     ms.load_param_into_net(net, param_dict)
