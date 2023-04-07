@@ -233,7 +233,7 @@ optional arguments:
   --data                  Dataset yaml config file path. Default: "./config/data/data.yaml"
   --hyp                   Hyperparameters yaml config file path. Default: "./config/data/hyp.scratch-low.yaml"
   --epochs                Training epochs. Default: 300
-  --batch_size            Total batch size for all devices. Default: 32
+  --batch_size            Batch size per device. Default: 32
   --save_checkpoint       Whether save checkpoint. Default: True
   --start_save_epoch      Epoch index after which checkpoint will be saved. Default: 1
   --save_interval         Epoch interval to save checkpoints. Default: 1

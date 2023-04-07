@@ -35,19 +35,17 @@ class Dict(dict):
         return self.__getitem__(item)
 
 
-
 class COCOResult:
     def __init__(self, eval_result=None):
+        self.stats: np.ndarray | None = None
+        self.stats_str: str = ''
+        self.category_stats: list[np.ndarray] = []
+        self.category_stats_strs: list[str] = []
         if eval_result is not None:
-            self.stats = eval_result.stats # np.ndarray
+            self.stats = eval_result.stats  # np.ndarray
             self.stats_str = eval_result.stats_str  # str
-            self.category_stats = eval_result.category_stats    # List[np.ndarray]
-            self.category_stats_strs = eval_result.category_stats_strs    # List[str]
-        else:
-            self.stats = None
-            self.stats_str = ''
-            self.category_stats = []
-            self.category_stats_strs = []
+            self.category_stats = eval_result.category_stats  # List[np.ndarray]
+            self.category_stats_strs = eval_result.category_stats_strs  # List[str]
 
     def get_map(self):
         if self.stats is None:
@@ -62,24 +60,24 @@ class COCOResult:
 
 class MetricStatistics:
     def __init__(self):
-        self.mp = 0.        # mean precision
-        self.mr = 0.        # mean recall
-        self.map50 = 0.     # mAP@50
-        self.map = 0.       # mAP@50:95
+        self.mp = 0.  # mean precision
+        self.mr = 0.  # mean recall
+        self.map50 = 0.  # mAP@50
+        self.map = 0.  # mAP@50:95
         self.loss_box = 0.
         self.loss_obj = 0.
         self.loss_cls = 0.
 
         self.pred_json = []
         self.pred_stats = []
-        self.tp = 0.    # true positive
-        self.fp = 0.    # false positive
-        self.precision = 0.
-        self.recall = 0.
-        self.f1 = 0.
-        self.ap = []        # average precision(AP)
-        self.ap50 = []      # average precision@50(AP@50)
-        self.ap_class = []  # average precision(AP) of each class
+        self.tp: np.ndarray = np.array(0)  # true positive
+        self.fp: np.ndarray = np.array(0)  # false positive
+        self.precision: np.ndarray = np.array(0)
+        self.recall: np.ndarray = np.array(0)
+        self.f1: np.ndarray = np.array(0)
+        self.ap: np.ndarray = np.array(0)  # average precision(AP)
+        self.ap50: np.ndarray = np.array(0)  # average precision@50(AP@50)
+        self.ap_class: np.ndarray = np.array(0)  # average precision(AP) of each class
 
         self.seen = 0
         self.confusion_matrix = None
@@ -108,8 +106,7 @@ class MetricStatistics:
 
     def compute_ap_per_class(self, plot=False, save_dir='.', names=()):
         tp, conf, pred_class, target_cls = self.pred_stats
-        result = ap_per_class(tp, conf, pred_class, target_cls, plot=plot,
-                              save_dir=save_dir, names=names)
+        result = ap_per_class(tp, conf, pred_class, target_cls, plot=plot, save_dir=save_dir, names=names)
         # result: tp, fp, p, r, f1, ap, unique_classes.astype(int)
         self.tp, self.fp = result[:2]
         self.precision, self.recall, self.f1 = result[2:5]
@@ -135,29 +132,6 @@ class TimeStatistics:
 
     def get_tuple(self):
         return self.total_infer_duration, self.total_nms_duration, self.total_metric_duration, self.total_duration()
-
-
-def save_one_json(predn, jdict, path, class_map):
-    # Save one JSON result {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
-    image_id = int(path.stem) if path.stem.isnumeric() else path.stem
-    box = xyxy2xywh(predn[:, :4])  # xywh
-    box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
-    for p, b in zip(predn.tolist(), box.tolist()):
-        jdict.append({
-            'image_id': image_id,
-            'category_id': class_map[int(p[5])],
-            'bbox': [round(x, 3) for x in b],
-            'score': round(p[4], 5)})
-
-
-def save_one_txt(predn, save_conf, shape, file):
-    # Save one txt result
-    gn = np.array(shape)[[1, 0, 1, 0]]  # normalization gain whwh
-    for *xyxy, conf, cls in predn.tolist():
-        xywh = (xyxy2xywh(np.array(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-        line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
-        with open(file, 'a') as f:
-            f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
 
 def process_batch(detections, labels, iouv):
@@ -202,22 +176,26 @@ class TestManager:
         self.opt = opt
         self.half_precision = half_precision
         self.is_coco = False
-        self.dataset_cfg = None
+        self.dataset_cfg: dict
         self.hyper_params = None
         if isinstance(opt.data, str):
             self.is_coco = opt.data.endswith('coco.yaml')
             with open(opt.data) as f:
                 self.dataset_cfg = yaml.load(f, Loader=yaml.SafeLoader)
-            self.nc = 1 if self.opt.single_cls else self.dataset_cfg['nc']
+        elif isinstance(opt.data, dict):
+            self.dataset_cfg = opt.data
+        else:
+            raise TypeError("The type of opt.data must be str or dict.")
+        self.nc: int = 1 if self.opt.single_cls else self.dataset_cfg['nc']
         self._process_dataset_cfg()
-        self.project_dir = None
-        self.save_dir = None
+        self.project_dir: str = ''
+        self.save_dir: str = './'
         self.model = None
         self.training = False
         self.img_size = self.opt.img_size
         self.batch_size = self.opt.batch_size
         self.grid_size = None
-        self.cls_map = None
+        self.cls_map: list[int] = []
         self.compute_loss = compute_loss
         self.synchronize = Synchronize(self.opt.rank_size)
         self.reduce_sum = AllReduce()
@@ -301,7 +279,32 @@ class TestManager:
         nms_duration = time.time() - nms_start_time
         return out, nms_duration
 
-    def _compute_metrics(self, img, targets, out, paths, shapes, metric_stats: MetricStatistics):
+    def _write_txt(self, pred, shape, path):
+        # Save result to txt
+        path = Path(path)
+        file_path = os.path.join(self.save_dir, 'labels', f'{path.stem}.txt')
+        gn = np.array(shape)[[1, 0, 1, 0]]  # normalization gain whwh
+        for *xyxy, conf, cls in pred.tolist():
+            xywh = (xyxy2xywh(np.array(xyxy).reshape(1, 4)) / gn).reshape(-1).tolist()  # normalized xywh
+            line = (cls, *xywh, conf) if self.opt.save_conf else (cls, *xywh)  # label format
+            with open(file_path, 'a') as f:
+                f.write(('%g ' * len(line)).rstrip() % line + '\n')
+
+    def _write_json_list(self, pred, pred_json, path):
+        # Save one JSON result
+        # example: {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
+        path = Path(path)
+        image_id = int(path.stem) if path.stem.isnumeric() else path.stem
+        box = xyxy2xywh(pred[:, :4])  # xywh
+        box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
+        for p, b in zip(pred.tolist(), box.tolist()):
+            pred_json.append({
+                'image_id': image_id,
+                'category_id': self.cls_map[int(p[5])],
+                'bbox': [round(x, 3) for x in b],
+                'score': round(p[4], 5)})
+
+    def _compute_metrics(self, img, targets, out: list[np.ndarray], paths, shapes, metric_stats: MetricStatistics):
         metric_stats.confusion_matrix = ConfusionMatrix(nc=self.dataset_cfg['nc'])
         iouv = metric_stats.iouv
         niou = metric_stats.niou
@@ -326,26 +329,26 @@ class TestManager:
             # Predictions
             if self.opt.single_cls:
                 pred[:, 5] = 0
-            predn = np.copy(pred)
-            predn[:, :4] = scale_coords(img[si].shape[1:], predn[:, :4], shape, shapes[si][1:])  # native-space pred
+            pred_copy = np.copy(pred)
+            # native-space pred
+            pred_copy[:, :4] = scale_coords(img[si].shape[1:], pred_copy[:, :4], shape, shapes[si][1:])
 
             # Evaluate
             if nl:
                 tbox = xywh2xyxy(labels[:, 1:5])  # target boxes
                 tbox = scale_coords(img[si].shape[1:], tbox, shape, shapes[si][1:])  # native-space labels
                 labelsn = np.concatenate((labels[:, 0:1], tbox), 1)  # native-space labels
-                correct = process_batch(predn, labelsn, iouv)
+                correct = process_batch(pred_copy, labelsn, iouv)
                 if self.opt.plots:
-                    metric_stats.confusion_matrix.process_batch(predn, labelsn)
+                    metric_stats.confusion_matrix.process_batch(pred_copy, labelsn)
             # (correct, conf, pcls, tcls)
             metric_stats.pred_stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))
 
             # Save/log
             if self.opt.save_txt:
-                save_one_txt(predn, self.opt.save_conf, shape,
-                             file=os.path.join(self.save_dir, 'labels', f'{path.stem}.txt'))
+                self._write_txt(pred_copy, shape, path)
             if self.opt.save_json:
-                save_one_json(predn, metric_stats.pred_json, path, self.cls_map)  # append to COCO-JSON dictionary
+                self._write_json_list(pred_copy, metric_stats.pred_json, path)
         metric_duration = time.time() - metric_start_time
         return metric_duration
 

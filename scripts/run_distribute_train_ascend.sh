@@ -75,7 +75,7 @@ do
         --device_target=Ascend \
         --is_distributed=True \
         --epochs=300 \
-        --batch_size=256 \
+        --batch_size=32 \
         --img_size=640 \
         --conf_thres=0.001 \
         --iou_thres=0.65 \

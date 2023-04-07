@@ -157,10 +157,10 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
 
 
 def val_test(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
-    LOGGER.info("Evaluating...", flush=True)
+    LOGGER.info("Evaluating...")
     param_dict = {}
     if opt.ema:
-        LOGGER.info("ema parameter update", flush=True)
+        LOGGER.info("ema parameter update")
         for p in ema.ema_weights:
             name = p.name[len("ema."):]
             param_dict[name] = p.data
@@ -210,6 +210,9 @@ def train(hyp, opt):
 
     with open(opt.data) as f:
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
+        data_dict['train'] = os.path.join(data_dict['root'], data_dict['train'])
+        data_dict['val'] = os.path.join(data_dict['root'], data_dict['val'])
+        data_dict['test'] = os.path.join(data_dict['root'], data_dict['test'])
     nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
     names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
@@ -459,11 +462,8 @@ def main():
         context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size,
                                           all_reduce_fusion_config=[10, 70, 130, 190, 250, 310])
 
-    # opt.total_batch_size = opt.batch_size
     opt.rank, opt.rank_size = rank, rank_size
-    # if rank_size > 1:
-    #     assert opt.batch_size % opt.rank_size == 0, '--batch-size must be multiple of device count'
-    #     opt.batch_size = opt.total_batch_size // opt.rank_size
+    opt.total_batch_size = opt.batch_size * opt.rank_size
 
     # Hyperparameters
     with open(opt.hyp) as f:
