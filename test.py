@@ -442,7 +442,6 @@ class TestManager:
         names = dataset_cfg['names']
         nc = dataset_cfg['nc']
         if len(pred_stats) and pred_stats[0].any():
-            # self._compute_ap_per_class(metric_stats)
             metric_stats.compute_ap_per_class(plot=opt.plots, save_dir=self.save_dir, names=self.dataset_cfg['names'])
         nt = np.bincount(pred_stats[3].astype(int), minlength=nc)  # number of targets per class
 
@@ -599,11 +598,12 @@ class TestManager:
                         LOGGER.exception("Exception when running pycocotools")
 
         # Return results
-        if not self.training:
+        if not self.training and opt.rank == 0:
             self._save_map(coco_result)
         maps = np.zeros(dataset_cfg['nc']) + coco_result.get_map()
-        for i, c in enumerate(metric_stats.ap_class):
-            maps[c] = metric_stats.ap[i]
+        if opt.rank == 0:
+            for i, c in enumerate(metric_stats.ap_class):
+                maps[c] = metric_stats.ap[i]
 
         model.set_train()
         return metric_stats, maps, speed, coco_result
