@@ -14,9 +14,9 @@ from mindspore.context import ParallelMode
 from mindspore import context, Tensor, ops
 from mindspore.communication.management import init, get_rank, get_group_size
 
+from config.args import get_args_test
 from src.general import LOGGER
 from src.network.yolo import Model
-from config.args import get_args_test
 from src.coco_visual import CocoVisualUtil
 from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
     colorstr, box_iou, increment_path, SynchronizeManager, AllReduce, Synchronize
@@ -69,7 +69,7 @@ class MetricStatistics:
         self.loss_cls = 0.
 
         self.pred_json = []
-        self.pred_stats = []
+        self.pred_stats = []    # (correct, conf, pred_cls, target_cls)
         self.tp: np.ndarray = np.array(0)  # true positive
         self.fp: np.ndarray = np.array(0)  # false positive
         self.precision: np.ndarray = np.array(0)
@@ -77,13 +77,10 @@ class MetricStatistics:
         self.f1: np.ndarray = np.array(0)
         self.ap: np.ndarray = np.array(0)  # average precision(AP)
         self.ap50: np.ndarray = np.array(0)  # average precision@50(AP@50)
-        self.ap_class: np.ndarray = np.array(0)  # average precision(AP) of each class
+        self.ap_cls: np.ndarray = np.array(0)  # average precision(AP) of each class
 
         self.seen = 0
         self.confusion_matrix = None
-
-        self.iouv = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
-        self.niou = np.prod(self.iouv.shape)
 
     def __iter__(self):
         for _, val in vars(self).items():
@@ -111,7 +108,7 @@ class MetricStatistics:
         self.tp, self.fp = result[:2]
         self.precision, self.recall, self.f1 = result[2:5]
         self.ap = result[5]
-        self.ap_class = result[6]
+        self.ap_cls = result[6]
         # AP@0.5, AP@0.5:0.95
         self.ap50 = self.ap[:, 0]
         self.ap = np.mean(self.ap, axis=1)
@@ -123,15 +120,15 @@ class MetricStatistics:
 
 class TimeStatistics:
     def __init__(self):
-        self.total_infer_duration = 0.
-        self.total_nms_duration = 0.
-        self.total_metric_duration = 0.
+        self.infer_duration = 0.
+        self.nms_duration = 0.
+        self.metric_duration = 0.
 
     def total_duration(self):
-        return self.total_infer_duration + self.total_nms_duration + self.total_metric_duration
+        return self.infer_duration + self.nms_duration + self.metric_duration
 
     def get_tuple(self):
-        return self.total_infer_duration, self.total_nms_duration, self.total_metric_duration, self.total_duration()
+        return self.infer_duration, self.nms_duration, self.metric_duration, self.total_duration()
 
 
 def process_batch(detections, labels, iouv):
@@ -186,7 +183,9 @@ class TestManager:
             self.dataset_cfg = opt.data
         else:
             raise TypeError("The type of opt.data must be str or dict.")
-        self.nc: int = 1 if self.opt.single_cls else self.dataset_cfg['nc']
+        if self.opt.single_cls:
+            self.dataset_cfg['nc'] = 1
+        self.confusion_matrix = ConfusionMatrix(nc=self.dataset_cfg['nc'])
         self._process_dataset_cfg()
         self.project_dir: str = ''
         self.save_dir: str = './'
@@ -225,7 +224,7 @@ class TestManager:
             # Hyperparameters
             with open(self.opt.hyp) as f:
                 self.hyper_params = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
-            model = Model(self.opt.cfg, ch=3, nc=self.nc, anchors=self.hyper_params.get('anchors'),
+            model = Model(self.opt.cfg, ch=3, nc=self.dataset_cfg['nc'], anchors=self.hyper_params.get('anchors'),
                           sync_bn=False, hyp=self.hyper_params)  # create
             ckpt_path = self.opt.weights
             load_checkpoint_to_yolo(model, ckpt_path)
@@ -305,9 +304,8 @@ class TestManager:
                 'score': round(p[4], 5)})
 
     def _compute_metrics(self, img, targets, out: list[np.ndarray], paths, shapes, metric_stats: MetricStatistics):
-        metric_stats.confusion_matrix = ConfusionMatrix(nc=self.dataset_cfg['nc'])
-        iouv = metric_stats.iouv
-        niou = metric_stats.niou
+        iou_vec = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
+        num_iou = np.prod(iou_vec.shape)
         metric_start_time = time.time()
         for si, pred in enumerate(out):
             labels = targets[targets[:, 0] == si, 1:]
@@ -316,14 +314,15 @@ class TestManager:
                 path = Path(str(codecs.decode(paths[si].tostring()).strip(b'\x00'.decode())))
             else:
                 path = Path(paths[si])
-            correct = np.zeros((npr, niou)).astype(np.bool_)  # init
+            # array[N, 10], bool, correct under 10 different iou threshold
+            correct = np.zeros((npr, num_iou)).astype(np.bool_)  # init
             metric_stats.seen += 1
 
             if npr == 0:
                 if nl:
                     metric_stats.pred_stats.append((correct, *np.zeros((2, 0)).astype(np.bool_), labels[:, 0]))
                     if self.opt.plots:
-                        metric_stats.confusion_matrix.process_batch(detections=None, labels=labels[:, 0])
+                        self.confusion_matrix.process_batch(detections=None, labels=labels[:, 0])
                 continue
 
             # Predictions
@@ -338,10 +337,10 @@ class TestManager:
                 tbox = xywh2xyxy(labels[:, 1:5])  # target boxes
                 tbox = scale_coords(img[si].shape[1:], tbox, shape, shapes[si][1:])  # native-space labels
                 labelsn = np.concatenate((labels[:, 0:1], tbox), 1)  # native-space labels
-                correct = process_batch(pred_copy, labelsn, iouv)
+                correct = process_batch(pred_copy, labelsn, iou_vec)
                 if self.opt.plots:
-                    metric_stats.confusion_matrix.process_batch(pred_copy, labelsn)
-            # (correct, conf, pcls, tcls)
+                    self.confusion_matrix.process_batch(pred_copy, labelsn)
+            # (correct, conf, pred_cls, target_cls)
             metric_stats.pred_stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))
 
             # Save/log
@@ -354,13 +353,13 @@ class TestManager:
 
     def _test(self, model, dataloader, per_epoch_size):
         opt = self.opt
-        augment = self.opt.augment
         dataset_cfg = self.dataset_cfg
         loss = np.zeros(3)
         time_stats = TimeStatistics()
         metric_stats = MetricStatistics()
         step_start_time = time.time()
         for batch_idx, meta in enumerate(dataloader):
+            # targets: Nx6 ndarray, img_id, label, x, y, w, h
             img, targets, paths, shapes = meta["img"], meta["label_out"], meta["img_files"], meta["shapes"]
             img = img / 255.0  # 0 - 255 to 0.0 - 1.0
             img_tensor = Tensor.from_numpy(img)
@@ -377,12 +376,12 @@ class TestManager:
             # Run model
             infer_start_time = time.time()
             # inference and training outputs
-            if self.compute_loss or not augment:
+            if self.compute_loss or not opt.augment:
                 pred_out, train_out = model(img_tensor)
             else:
-                pred_out, train_out = (model(img_tensor, augment=augment), None)
+                pred_out, train_out = (model(img_tensor, augment=opt.augment), None)
             infer_duration = time.time() - infer_start_time
-            time_stats.total_infer_duration += infer_duration
+            time_stats.infer_duration += infer_duration
 
             # Compute loss
             if self.compute_loss:
@@ -392,11 +391,11 @@ class TestManager:
             targets[:, 2:] *= np.array([width, height, width, height], targets.dtype)  # to pixels
             label = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if opt.save_hybrid else []  # for autolabelling
             out, nms_duration = self._nms(pred_out, label)
-            time_stats.total_nms_duration += nms_duration
+            time_stats.nms_duration += nms_duration
 
             # Metrics
             metric_duration = self._compute_metrics(img, targets, out, paths, shapes, metric_stats)
-            time_stats.total_metric_duration += metric_duration
+            time_stats.metric_duration += metric_duration
             # Plot images
             if opt.plots and batch_idx < 3:
                 labels_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_labels.jpg')  # labels
@@ -418,8 +417,8 @@ class TestManager:
         # TODO: Refactor map stats
         opt = self.opt
         dataset_cfg = self.dataset_cfg
-        project_dir = Path(self.save_dir).parent
         # Compute metrics
+        # pred_stats: list[np.ndarray], np.concatenate((correct, conf, pred_cls, target_cls), 0)
         metric_stats.pred_stats = [np.concatenate(x, 0) for x in zip(*metric_stats.pred_stats)]  # to numpy
         pred_stats_file = os.path.join(self.save_dir, f"pred_stats_{self.opt.rank}.npy")
         np.save(pred_stats_file, np.array(metric_stats.pred_stats, dtype=object), allow_pickle=True)
@@ -428,13 +427,7 @@ class TestManager:
         if self.opt.rank != 0:
             return
 
-        # Merge prediction stats
-        pred_stats: list[list] = [[] for _ in range(len(metric_stats.pred_stats))]
-        for file_path in project_dir.rglob("pred_stats*.npy"):
-            stats = np.load(str(file_path.resolve()), allow_pickle=True)
-            for i, item in enumerate(stats):
-                pred_stats[i].append(item)
-
+        pred_stats: list[list] = self._merge_pred_stats(metric_stats)
         pred_stats: list[np.ndarray] = [np.concatenate(item, axis=0) for item in pred_stats]
         metric_stats.pred_stats = pred_stats
 
@@ -453,15 +446,25 @@ class TestManager:
 
         # Print results per class
         if (opt.verbose or (nc < 50 and not self.training)) and nc > 1 and len(pred_stats):
-            for i, c in enumerate(metric_stats.ap_class):
+            for i, c in enumerate(metric_stats.ap_cls):
                 # Class     Images  Instances          P          R      mAP50   mAP50-95:
                 LOGGER.info(pf.format(names[c], seen, nt[c], *metric_stats.get_ap_per_class(i)))
 
-    def _save_json(self, pred_json, save_path):
+    def _merge_pred_stats(self, metric_stats):
+        # Merge prediction stats
+        project_dir = Path(self.save_dir).parent
+        pred_stats: list[list] = [[] for _ in range(len(metric_stats.pred_stats))]
+        for file_path in project_dir.rglob("pred_stats*.npy"):
+            stats = np.load(str(file_path.resolve()), allow_pickle=True)
+            for i, item in enumerate(stats):
+                pred_stats[i].append(item)
+        return pred_stats
+
+    def save_json(self, pred_json, save_path):
         with open(save_path, 'w') as file:
             json.dump(pred_json, file)
 
-    def _save_map(self, coco_result):
+    def save_map(self, coco_result):
         dataset_cfg = self.dataset_cfg
         s = f"\n{len(glob.glob(os.path.join(self.save_dir, 'labels/*.txt')))} labels saved to " \
             f"{os.path.join(self.save_dir, 'labels')}" if self.opt.save_txt else ''
@@ -472,7 +475,7 @@ class TestManager:
                 for idx, category_str in enumerate(coco_result.category_stats_strs):
                     file.write(f"\nclass {dataset_cfg['names'][idx]}:\n{category_str}\n")
 
-    def _get_val_anno(self):
+    def get_val_anno(self):
         dataset_cfg = self.dataset_cfg
         opt = self.opt
         data_dir = Path(dataset_cfg["val"]).parent
@@ -486,7 +489,7 @@ class TestManager:
             transformer()
         return anno_json
 
-    def _merge_pred(self, prefix=''):
+    def _merge_pred_json(self, prefix=''):
         LOGGER.info("Merge detection results...")
         merged_json = os.path.join(self.project_dir, f"{prefix}_predictions_merged.json")
         merged_result = []
@@ -499,7 +502,7 @@ class TestManager:
         LOGGER.info(f"Merged results saved in {merged_json}.")
         return merged_json, merged_result
 
-    def _eval_coco(self, anno_json, pred_json, dataset=None):
+    def eval_coco(self, anno_json, pred_json, dataset=None):
         LOGGER.info("Start evaluating mAP...")
         anno = COCO(anno_json)  # init annotations api
         pred = anno.loadRes(pred_json)  # init predictions api
@@ -513,7 +516,7 @@ class TestManager:
         LOGGER.info("Finish evaluating mAP.")
         return coco_result
 
-    def _visualize_coco(self, anno_json, pred_json_path):
+    def visualize_coco(self, anno_json, pred_json_path):
         LOGGER.info("Start visualization result.")
         dataset_cfg = self.dataset_cfg
         dataset_coco = COCO(anno_json)
@@ -532,7 +535,7 @@ class TestManager:
                               recommend_threshold=self.opt.recommend_threshold)
         LOGGER.exception("Failed when visualize evaluation result.")
 
-    def _print_stats(self, metric_stats, time_stats):
+    def print_stats(self, metric_stats, time_stats):
         total_time_fmt_str = 'Total time: {:.1f}/{:.1f}/{:.1f}/{:.1f} s ' \
                              'inference/NMS/Metric/total {:g}x{:g} image at batch-size {:g}'
         speed_fmt_str = 'Speed: {:.1f}/{:.1f}/{:.1f}/{:.1f} ms ' \
@@ -553,9 +556,10 @@ class TestManager:
             LOGGER.info("Testing with YOLOv5 AP metric...")
 
         dataset_cfg = self.dataset_cfg
-        dataset_cfg['names'] = {
-            k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)
-        }
+        # dataset_cfg['names'] = {
+        #     k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)
+        # }
+        dataset_cfg['names'] = dict(enumerate(model.names if hasattr(model, 'names') else model.module.names))
         start_idx = 1
         self.cls_map = coco80_to_coco91_class() if self.is_coco else list(range(start_idx, 1000 + start_idx))
 
@@ -564,45 +568,45 @@ class TestManager:
         self._compute_map_stats(metric_stats)
 
         # Print speeds
-        speed = self._print_stats(metric_stats, time_stats)
+        speed = self.print_stats(metric_stats, time_stats)
 
         # Plots
         if opt.plots:
-            matrix = ms.Tensor(metric_stats.confusion_matrix.matrix)
+            matrix = ms.Tensor(self.confusion_matrix.matrix)
             matrix = AllReduce()(matrix).asnumpy()
-            metric_stats.confusion_matrix.matrix = matrix
+            self.confusion_matrix.matrix = matrix
             if opt.rank == 0:
-                metric_stats.confusion_matrix.plot(save_dir=self.save_dir, names=list(dataset_cfg['names'].values()))
+                self.confusion_matrix.plot(save_dir=self.save_dir, names=list(dataset_cfg['names'].values()))
 
         coco_result = COCOResult()
         # Save JSON
         if opt.save_json and len(metric_stats.pred_json):
-            anno_json = self._get_val_anno()
+            anno_json = self.get_val_anno()
             ckpt_name = Path(opt.weights).stem if opt.weights is not None else ''  # weights
             pred_json_path = os.path.join(self.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
             LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
-            self._save_json(metric_stats.pred_json, pred_json_path)
+            self.save_json(metric_stats.pred_json, pred_json_path)
             with SynchronizeManager(opt.rank, opt.rank_size, opt.is_distributed, self.project_dir):
                 if opt.rank == 0:
-                    pred_json_path, merged_results = self._merge_pred(prefix=ckpt_name)
+                    pred_json_path, merged_results = self._merge_pred_json(prefix=ckpt_name)
                     if opt.result_view or opt.recommend_threshold:
                         try:
-                            self._visualize_coco(anno_json, pred_json_path)
+                            self.visualize_coco(anno_json, pred_json_path)
                         except Exception as e:
                             LOGGER.exception("Failed when visualize evaluation result.")
                     try:
                         pred_json = merged_results if opt.is_distributed else metric_stats.pred_json
-                        coco_result = self._eval_coco(anno_json, pred_json)
+                        coco_result = self.eval_coco(anno_json, pred_json)
                         LOGGER.info(f"\nCOCO mAP:\n{coco_result.stats_str}")
                     except Exception as e:
                         LOGGER.exception("Exception when running pycocotools")
 
         # Return results
         if not self.training and opt.rank == 0:
-            self._save_map(coco_result)
+            self.save_map(coco_result)
         maps = np.zeros(dataset_cfg['nc']) + coco_result.get_map()
         if opt.rank == 0:
-            for i, c in enumerate(metric_stats.ap_class):
+            for i, c in enumerate(metric_stats.ap_cls):
                 maps[c] = metric_stats.ap[i]
 
         model.set_train()
@@ -621,7 +625,7 @@ def main():
     # ms.set_context(pynative_synchronize=True)
     context.set_context(mode=ms_mode, device_target=opt.device_target)
     if opt.device_target == "Ascend":
-        device_id = int(os.getenv('DEVICE_ID', 0))
+        device_id = int(os.getenv('DEVICE_ID', '0'))
         context.set_context(device_id=device_id)
     rank, rank_size, parallel_mode = 0, 1, ParallelMode.STAND_ALONE
     # Distribute Test

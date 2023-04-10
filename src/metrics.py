@@ -61,7 +61,7 @@ class ConfusionMatrix:
                 if not any(m1 == i):
                     self.matrix[dc, self.nc] += 1  # predicted background
 
-    def matrix(self):
+    def get_matrix(self):
         return self.matrix
 
     def plot(self, save_dir='', names=()):
