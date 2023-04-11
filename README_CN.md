@@ -363,9 +363,23 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 |---------|-----------------------|-----------------------------------|--------------------------------|------------------------------------|---------------------------------|---------------|
 | YOLOv5n | 640                   |                                   |                                |                                    |                                 | 66            |
 | YOLOv5s | 640                   | 0.375                             | 0.572                          | 0.373                              | 0.57                            | 79            |
-| YOLOv5m | 640                   | 0.452                             | 0.638                          | 0.451                              | 0.636                           | 133           |
-| YOLOv5l | 640                   |                                   |                                |                                    |                                 | 163           |
+| YOLOv5m | 640                   | 0.453                             | 0.637                          | 0.451                              | 0.637                           | 133           |
+| YOLOv5l | 640                   | 0.489                             | 0.675                          | 0.486                              | 0.671                           | 163           |
 | YOLOv5x | 640                   |                                   |                                |                                    |                                 | 221           |
 
-注：
-1. Epoch Time 为 Ascend 910A 机器的测试结果，每张卡的 batch_size 为 32。
+<details>
+<summary>注释</summary>
+
+- 所有模型都使用默认配置，训练 300 epochs。YOLOv5n和YOLOv5s模型使用 hyp.scratch-low.yaml 配置，其他模型都使用 hyp.scratch-high.yaml 配置。
+- 下面为不同模型训练时使用的配置：
+```bash
+--data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size 
+                                                 yolov5s                    32
+                                                 yolov5m                    24
+                                                 yolov5l                    24
+                                                 yolov5x                    
+```
+- Epoch Time 为 Ascend 910A 机器的测试结果，每张卡的 batch_size 为 32。
+- **mAP<sup>val</sup>** 在单模型单尺度上计算，数据集使用 [COCO val2017](http://cocodataset.org) 。<br>关键参数为 `--img_size 640 --conf_thres 0.001 --iou_thres 0.65`。
+
+</details>

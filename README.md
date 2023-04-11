@@ -373,9 +373,23 @@ The model of `ckpt` format can be transformed to `om` format by `atc` tool for d
 |---------|-----------------------|-----------------------------------|--------------------------------|------------------------------------|---------------------------------|---------------|
 | YOLOv5n | 640                   |                                   |                                |                                    |                                 | 66            |
 | YOLOv5s | 640                   | 0.375                             | 0.572                          | 0.373                              | 0.57                            | 79            |
-| YOLOv5m | 640                   | 0.452                             | 0.638                          | 0.451                              | 0.636                           | 133           |
-| YOLOv5l | 640                   |                                   |                                |                                    |                                 | 163           |
+| YOLOv5m | 640                   | 0.453                             | 0.637                          | 0.451                              | 0.637                           | 133           |
+| YOLOv5l | 640                   | 0.489                             | 0.675                          | 0.486                              | 0.671                           | 163           |
 | YOLOv5x | 640                   |                                   |                                |                                    |                                 | 221           |
 
-Note：
-1. The result of 'Epoch Time' is evaluated on Ascend 910A with batch_size 32 per device.
+<details>
+<summary>Note</summary>
+
+- All models are trained to 300 epochs with default settings. Nano and Small models use hyp.scratch-low.yaml hyper-parameters, all others use hyp.scratch-high.yaml.
+- The following are settings used for different models:
+```bash
+--data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size 
+                                                 yolov5s                    32
+                                                 yolov5m                    24
+                                                 yolov5l                    24
+                                                 yolov5x                    
+```
+- The result of 'Epoch Time' is evaluated on Ascend 910A with batch_size 32 per device.
+- **mAP<sup>val</sup>** values are for single-model single-scale on [COCO val2017](http://cocodataset.org) dataset.<br>The key configs are `--img_size 640 --conf_thres 0.001 --iou_thres 0.65`
+
+</details>
