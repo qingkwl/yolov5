@@ -422,8 +422,9 @@ class TestManager:
         metric_stats.pred_stats = [np.concatenate(x, 0) for x in zip(*metric_stats.pred_stats)]  # to numpy
         pred_stats_file = os.path.join(self.save_dir, f"pred_stats_{self.opt.rank}.npy")
         np.save(pred_stats_file, np.array(metric_stats.pred_stats, dtype=object), allow_pickle=True)
-        metric_stats.seen = self.reduce_sum(ms.Tensor(np.array(metric_stats.seen, dtype=np.int32))).asnumpy()
-        self.synchronize()
+        if opt.is_distributed:
+            metric_stats.seen = self.reduce_sum(ms.Tensor(np.array(metric_stats.seen, dtype=np.int32))).asnumpy()
+            self.synchronize()
         if self.opt.rank != 0:
             return
 
@@ -573,7 +574,8 @@ class TestManager:
         # Plots
         if opt.plots:
             matrix = ms.Tensor(self.confusion_matrix.matrix)
-            matrix = AllReduce()(matrix).asnumpy()
+            if opt.is_distributed:
+                matrix = AllReduce()(matrix).asnumpy()
             self.confusion_matrix.matrix = matrix
             if opt.rank == 0:
                 self.confusion_matrix.plot(save_dir=self.save_dir, names=list(dataset_cfg['names'].values()))
