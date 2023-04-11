@@ -8,7 +8,6 @@ from contextlib import nullcontext
 
 import yaml
 import numpy as np
-import albumentations
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
@@ -109,54 +108,8 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
                                      sens=sens, enable_clip_grad=enable_clip_grad)
     return train_step
 
-#
-# def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
-#     print("[INFO] Evaluating...", flush=True)
-#     param_dict = {}
-#     if opt.ema:
-#         print("[INFO] ema parameter update", flush=True)
-#         for p in ema.ema_weights:
-#             name = p.name[len("ema."):]
-#             param_dict[name] = p.data
-#     else:
-#         for p in model.get_parameters():
-#             name = p.name
-#             param_dict[name] = p.data
-#
-#     ms.load_param_into_net(infer_model, param_dict)
-#     del param_dict
-#     infer_model.set_train(False)
-#     metric_stats, _, _, coco_result = \
-#         test(opt.data,
-#              opt.weights,
-#              opt.batch_size,
-#              opt.img_size,
-#              opt.conf_thres,
-#              opt.iou_thres,
-#              opt.save_json,
-#              opt.single_cls,
-#              opt.augment,
-#              opt.verbose,
-#              model=infer_model,
-#              dataloader=val_dataloader,
-#              dataset=val_dataset,
-#              save_txt=opt.save_txt | opt.save_hybrid,
-#              save_hybrid=opt.save_hybrid,
-#              save_conf=opt.save_conf,
-#              trace=not opt.no_trace,
-#              plots=not opt.noplots,
-#              half_precision=False,
-#              v5_metric=opt.v5_metric,
-#              is_distributed=opt.is_distributed,
-#              rank=opt.rank,
-#              rank_size=opt.rank_size,
-#              opt=opt,
-#              cur_epoch=cur_epoch)
-#     infer_model.set_train(True)
-#     return coco_result
 
-
-def val_test(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
+def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
     LOGGER.info("Evaluating...")
     param_dict = {}
     if opt.ema:
@@ -398,10 +351,7 @@ def train(hyp, opt):
                        ((cur_epoch >= opt.eval_start_epoch) and (cur_epoch % opt.eval_epoch_interval) == 0)
 
             if opt.run_eval and is_eval_epoch():
-                # eval_results, stats_str, category_stats, category_stats_str = \
-                # coco_result = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
-                coco_result = val_test(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
-                # mean_ap = eval_results[3]
+                coco_result = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
                 mean_avg_precis = coco_result.get_map()
                 if opt.summary and summary_record is not None:
                     summary_record.add_value('scalar', 'map', ms.Tensor(mean_avg_precis))
