@@ -13,18 +13,19 @@
 # limitations under the License.
 # ============================================================================
 
-import os
-import sys
-import json
-import shutil
 import csv
+import json
+import os
+import shutil
+import sys
 import warnings
 from typing import List
+
 import cv2
+import matplotlib.pyplot as plt
 import mmcv
 import numpy as np
 import seaborn as sns
-import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval

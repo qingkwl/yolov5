@@ -1,29 +1,46 @@
+# Copyright 2022 Huawei Technologies Co., Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =======================================================================================
+
 from __future__ import annotations
+
+import codecs
 import glob
+import json
 import os
 import time
-import json
-import codecs
 from pathlib import Path
-import yaml
-import numpy as np
-from pycocotools.coco import COCO
 
 import mindspore as ms
-from mindspore.context import ParallelMode
-from mindspore import context, Tensor, ops
-from mindspore.communication.management import init, get_rank, get_group_size
-
+import numpy as np
+import yaml
 from config.args import get_args_test
-from src.general import LOGGER
-from src.network.yolo import Model
+from mindspore import Tensor, context, ops
+from mindspore.communication.management import get_group_size, get_rank, init
+from mindspore.context import ParallelMode
+from pycocotools.coco import COCO
 from src.coco_visual import CocoVisualUtil
-from src.general import coco80_to_coco91_class, check_file, check_img_size, xyxy2xywh, xywh2xyxy, \
-    colorstr, box_iou, increment_path, SynchronizeManager, AllReduce, Synchronize
-from src.general import COCOEval as COCOeval
 from src.dataset import create_dataloader
-from src.metrics import ConfusionMatrix, non_max_suppression, scale_coords, ap_per_class
-from src.plots import plot_study_txt, plot_images, output_to_target
+from src.general import LOGGER, AllReduce
+from src.general import COCOEval as COCOeval
+from src.general import (Synchronize, SynchronizeManager, box_iou, check_file,
+                         check_img_size, coco80_to_coco91_class, colorstr,
+                         increment_path, xywh2xyxy, xyxy2xywh)
+from src.metrics import (ConfusionMatrix, ap_per_class, non_max_suppression,
+                         scale_coords)
+from src.network.yolo import Model
+from src.plots import output_to_target, plot_images, plot_study_txt
 from third_party.yolo2coco.yolo2coco import YOLO2COCO
 
 
@@ -414,7 +431,6 @@ class TestManager:
         return metric_stats, time_stats
 
     def _compute_map_stats(self, metric_stats: MetricStatistics):
-        # TODO: Refactor map stats
         opt = self.opt
         dataset_cfg = self.dataset_cfg
         # Compute metrics
@@ -534,7 +550,6 @@ class TestManager:
         coco_visual.coco_eval(config, result_files, eval_types, dataset_coco, im_path_dir=im_path_dir,
                               score_threshold=None,
                               recommend_threshold=self.opt.recommend_threshold)
-        LOGGER.exception("Failed when visualize evaluation result.")
 
     def print_stats(self, metric_stats, time_stats):
         total_time_fmt_str = 'Total time: {:.1f}/{:.1f}/{:.1f}/{:.1f} s ' \
@@ -557,9 +572,6 @@ class TestManager:
             LOGGER.info("Testing with YOLOv5 AP metric...")
 
         dataset_cfg = self.dataset_cfg
-        # dataset_cfg['names'] = {
-        #     k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)
-        # }
         dataset_cfg['names'] = dict(enumerate(model.names if hasattr(model, 'names') else model.module.names))
         start_idx = 1
         self.cls_map = coco80_to_coco91_class() if self.is_coco else list(range(start_idx, 1000 + start_idx))
@@ -573,35 +585,12 @@ class TestManager:
 
         # Plots
         if opt.plots:
-            matrix = ms.Tensor(self.confusion_matrix.matrix)
-            if opt.is_distributed:
-                matrix = AllReduce()(matrix).asnumpy()
-            self.confusion_matrix.matrix = matrix
-            if opt.rank == 0:
-                self.confusion_matrix.plot(save_dir=self.save_dir, names=list(dataset_cfg['names'].values()))
+            self._plot_confusion_matrix()
 
         coco_result = COCOResult()
         # Save JSON
         if opt.save_json and len(metric_stats.pred_json):
-            anno_json = self.get_val_anno()
-            ckpt_name = Path(opt.weights).stem if opt.weights is not None else ''  # weights
-            pred_json_path = os.path.join(self.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
-            LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
-            self.save_json(metric_stats.pred_json, pred_json_path)
-            with SynchronizeManager(opt.rank, opt.rank_size, opt.is_distributed, self.project_dir):
-                if opt.rank == 0:
-                    pred_json_path, merged_results = self._merge_pred_json(prefix=ckpt_name)
-                    if opt.result_view or opt.recommend_threshold:
-                        try:
-                            self.visualize_coco(anno_json, pred_json_path)
-                        except Exception as e:
-                            LOGGER.exception("Failed when visualize evaluation result.")
-                    try:
-                        pred_json = merged_results if opt.is_distributed else metric_stats.pred_json
-                        coco_result = self.eval_coco(anno_json, pred_json)
-                        LOGGER.info(f"\nCOCO mAP:\n{coco_result.stats_str}")
-                    except Exception as e:
-                        LOGGER.exception("Exception when running pycocotools")
+            coco_result = self._save_eval_result(metric_stats)
 
         # Return results
         if not self.training and opt.rank == 0:
@@ -613,6 +602,41 @@ class TestManager:
 
         model.set_train()
         return metric_stats, maps, speed, coco_result
+
+    def _save_eval_result(self, metric_stats):
+        opt = self.opt
+        anno_json = self.get_val_anno()
+        ckpt_name = Path(opt.weights).stem if opt.weights is not None else ''  # weights
+        pred_json_path = os.path.join(self.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
+        LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
+        self.save_json(metric_stats.pred_json, pred_json_path)
+        with SynchronizeManager(opt.rank, opt.rank_size, opt.is_distributed, self.project_dir):
+            result = COCOResult()
+            if opt.rank == 0:
+                path, merged_results = self._merge_pred_json(prefix=ckpt_name)
+                if opt.result_view or opt.recommend_threshold:
+                    try:
+                        self.visualize_coco(anno_json, path)
+                    except Exception:
+                        LOGGER.exception("Failed when visualize evaluation result.")
+                try:
+                    pred_json = merged_results if opt.is_distributed else metric_stats.pred_json
+                    result = self.eval_coco(anno_json, pred_json)
+                    LOGGER.info(f"\nCOCO mAP:\n{result.stats_str}")
+                except Exception:
+                    LOGGER.exception("Exception when running pycocotools")
+            coco_result = result
+        return coco_result
+
+    def _plot_confusion_matrix(self):
+        dataset_cfg = self.dataset_cfg
+        opt = self.opt
+        matrix = ms.Tensor(self.confusion_matrix.matrix)
+        if opt.is_distributed:
+            matrix = AllReduce()(matrix).asnumpy()
+        self.confusion_matrix.matrix = matrix
+        if opt.rank == 0:
+            self.confusion_matrix.plot(save_dir=self.save_dir, names=list(dataset_cfg['names'].values()))
 
 
 def main():

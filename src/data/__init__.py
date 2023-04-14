@@ -18,11 +18,12 @@ from __future__ import annotations
 import yaml
 from pathlib import Path
 from typing import Type
-from src.loggers.default import get_logger
+
 from src.data.base import BaseArgs, COCOArgs, YOLOArgs, LabelmeArgs, exists
 from src.data.coco import COCOManager
 from src.data.yolo import YOLOManager
 from src.data.labelme import LabelmeManager
+from src.general import LOGGER
 
 _dataset_arg_mapping: dict[str, Type[BaseArgs]] = {
     "coco": COCOArgs,
@@ -92,7 +93,7 @@ def convert(src_format: str, dst_format: str, src_root: str, dst_root: str, src_
     coco_args: COCOArgs
     yolo_args: YOLOArgs
     labelme_args: LabelmeArgs
-    _logger = get_logger()
+    _logger = LOGGER
     src_format, dst_format = src_format.lower(), dst_format.lower()
     if dst_format == 'yolo':
         if src_format == 'coco':

@@ -16,11 +16,13 @@
 pre-process for inference
 """
 import os
+
 import yaml
 
 from config.args import get_args_export
 from src.dataset import create_dataloader
 from src.general import colorstr
+
 
 def preprocess(opt):
     """

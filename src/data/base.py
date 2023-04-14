@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Union
 from pathlib import Path
 
-from src.loggers.default import get_logger
+from src.general import LOGGER
 
 
 PATH = Union[str, Path]
@@ -76,7 +76,7 @@ def mkdir(dir_path: PATH, exist_ok=True) -> None:
 
 class BaseManager:
     def __init__(self):
-        self.logger = get_logger()
+        self.logger = LOGGER
 
     def _check_dir(self, dir_path: PATH, strict: bool = True) -> bool:
         if empty(dir_path):

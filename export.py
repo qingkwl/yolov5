@@ -16,11 +16,11 @@
 python export.py
 """
 import os
-import yaml
-import numpy as np
 
 import mindspore as ms
-from mindspore import Tensor, export, context
+import numpy as np
+import yaml
+from mindspore import Tensor, context, export
 
 from config.args import get_args_export
 from src.network.yolo import Model

@@ -1,16 +1,31 @@
-import os
-import re
+# Copyright 2022 Huawei Technologies Co., Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ============================================================================
+
 import glob
 import math
-import time
-import numpy as np
+import os
+import re
 import threading
+import time
 from pathlib import Path
-import pkg_resources as pkg
 
 import mindspore as ms
-from mindspore import ops
 import mindspore.nn as nn
+import numpy as np
+import pkg_resources as pkg
+from mindspore import ops
 
 from src.logging import get_logger, set_logger
 from src.utils import emojis
@@ -19,7 +34,8 @@ LOGGER = get_logger()
 set_logger(LOGGER)
 
 try:
-    from third_party.fast_coco.fast_coco_eval_api import Fast_COCOeval as COCOeval
+    from third_party.fast_coco.fast_coco_eval_api import \
+        Fast_COCOeval as COCOeval
     LOGGER.info("Use third party coco eval api to speed up mAP calculation.")
 except ImportError:
     LOGGER.exception("Third party coco eval api import failed, use default api.")

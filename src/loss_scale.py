@@ -13,22 +13,17 @@
 # limitations under the License.
 # ============================================================================
 """dynamic loss scale """
+
 import mindspore as ms
 import mindspore.context as context
-from mindspore.context import ParallelMode
-from mindspore import nn
-from mindspore.nn import TrainOneStepCell
+from mindspore import nn, ops
 from mindspore.nn import Cell
-from mindspore import Tensor, RowTensor
-from mindspore import Parameter
-from mindspore.ops import functional as F
 from mindspore.ops import composite as C
+from mindspore.ops import functional as F
 from mindspore.ops import operations as P
-from mindspore.common import dtype as mstype
 
 GRADIENT_CLIP_TYPE = 0
 GRADIENT_CLIP_VALUE = 1.0
-from mindspore import ops
 
 
 class ClipGradients(Cell):

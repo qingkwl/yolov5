@@ -389,7 +389,7 @@ The model of `ckpt` format can be transformed to `om` format by `atc` tool for d
                                                  yolov5l                    24
                                                  yolov5x                    
 ```
-- The result of 'Epoch Time' is evaluated on Ascend 910A with batch_size 32 per device.
+- The result of 'Epoch Time' is evaluated on 8 Ascend 910A with batch_size 32 per device.
 - **mAP<sup>val</sup>** values are for single-model single-scale on [COCO val2017](http://cocodataset.org) dataset.<br>The key configs are `--img_size 640 --conf_thres 0.001 --iou_thres 0.65`
 
 </details>

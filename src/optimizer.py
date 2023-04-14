@@ -1,16 +1,32 @@
+# Copyright 2022 Huawei Technologies Co., Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =======================================================================================
+
 import math
-import numpy as np
 
 import mindspore as ms
-from mindspore import nn
 import mindspore.common.dtype as mstype
-from mindspore.common.tensor import Tensor
+import numpy as np
+from mindspore import nn
 from mindspore._checkparam import Validator
 from mindspore.common.api import ms_function
-from mindspore.common.parameter import Parameter
-from mindspore.common.parameter import ParameterTuple
-from mindspore.ops import functional as F, composite as C, operations as P
+from mindspore.common.parameter import Parameter, ParameterTuple
+from mindspore.common.tensor import Tensor
 from mindspore.nn.optim.optimizer import opt_init_args_register
+from mindspore.ops import composite as C
+from mindspore.ops import functional as F
+from mindspore.ops import operations as P
 
 
 def one_cycle(y1=0.0, y2=1.0, steps=100):

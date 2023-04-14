@@ -1,35 +1,47 @@
+# Copyright 2022 Huawei Technologies Co., Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =======================================================================================
+
+import copy
 import os
 import random
 import time
-import copy
 from collections import deque
-from pathlib import Path
 from contextlib import nullcontext
+from pathlib import Path
 
-import yaml
-import numpy as np
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
-from mindspore import Parameter
+import numpy as np
+import yaml
+from mindspore import Parameter, Tensor, context
+from mindspore.communication.management import get_group_size, get_rank, init
 from mindspore.context import ParallelMode
-from mindspore import context, Tensor
-from mindspore.communication.management import init, get_rank, get_group_size
 from mindspore.ops import functional as F
 from mindspore.profiler.profiling import Profiler
 
-from src.logging import get_logger
 from config.args import get_args_train
+from src.boost import build_train_network
+from src.dataset import create_dataloader
+from src.general import (check_file, check_img_size, colorstr, increment_path,
+                         labels_to_class_weights, LOGGER)
+from src.network.common import EMA
 from src.network.loss import ComputeLoss
 from src.network.yolo import Model
-from src.network.common import EMA
-from src.dataset import create_dataloader
-from src.boost import build_train_network
-from src.optimizer import get_group_param, get_lr, YoloMomentum
-from src.general import increment_path, colorstr, labels_to_class_weights, check_file, check_img_size
+from src.optimizer import YoloMomentum, get_group_param, get_lr
 from test import TestManager
-
-LOGGER = get_logger()
 
 
 def set_seed(seed=2):
