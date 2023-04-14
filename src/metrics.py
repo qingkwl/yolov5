@@ -1,10 +1,26 @@
+# Copyright 2022 Huawei Technologies Co., Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# =======================================================================================
+
 import os
 import time
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
 
-from src.general import xywh2xyxy, box_iou
+import matplotlib.pyplot as plt
+import numpy as np
+
+from src.general import LOGGER, box_iou, xywh2xyxy
 
 
 class ConfusionMatrix:
@@ -37,15 +53,7 @@ class ConfusionMatrix:
         iou = box_iou(labels[:, 1:], detections[:, :4])
 
         x = np.where(iou > self.iou_thres)
-        if x[0].shape[0]:
-            matches = np.concatenate((np.stack(x, 1), iou[x[0], x[1]][:, None]), 1)
-            if x[0].shape[0] > 1:
-                matches = matches[matches[:, 2].argsort()[::-1]]
-                matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
-                matches = matches[matches[:, 2].argsort()[::-1]]
-                matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
-        else:
-            matches = np.zeros((0, 3))
+        matches = self.get_matches(iou, x)
 
         n = matches.shape[0] > 0
         m0, m1, _ = matches.transpose().astype(np.int32)
@@ -60,6 +68,19 @@ class ConfusionMatrix:
             for i, dc in enumerate(detection_classes):
                 if not any(m1 == i):
                     self.matrix[dc, self.nc] += 1  # predicted background
+
+    @staticmethod
+    def get_matches(iou, x):
+        if x[0].shape[0]:
+            matches = np.concatenate((np.stack(x, 1), iou[x[0], x[1]][:, None]), 1)
+            if x[0].shape[0] > 1:
+                matches = matches[matches[:, 2].argsort()[::-1]]
+                matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
+                matches = matches[matches[:, 2].argsort()[::-1]]
+                matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
+        else:
+            matches = np.zeros((0, 3))
+        return matches
 
     def get_matrix(self):
         return self.matrix
@@ -127,11 +148,11 @@ def _nms(xyxys, scores, threshold, time_limit=-1, sample_idx=0):
 
 try:
     from third_party.fast_nms import fast_cpu_nms
-    print("[INFO] Use fast cpu nms.", flush=True)
+    LOGGER.info("Use fast cpu nms.")
     nms_func = fast_cpu_nms.nms
 except ImportError:
-    print("[WARNING] Fast cpu nms import failed.")
-    print("[INFO] Use default nms.", flush=True)
+    LOGGER.warning("Fast cpu nms import failed.")
+    LOGGER.info("Use default nms.")
     nms_func = _nms
 
 
@@ -252,6 +273,7 @@ def clip_coords(boxes, img_shape):
     boxes[:, 2] = boxes[:, 2].clip(0, img_shape[1])  # x2
     boxes[:, 3] = boxes[:, 3].clip(0, img_shape[0])  # y2
     return boxes
+
 
 def smooth(y, f=0.05):
     # Box filter of fraction f

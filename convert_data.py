@@ -20,12 +20,6 @@ from src.data import convert
 
 
 def get_args():
-    # src_format    source dataset format
-    # dst_format    destination dataset format
-    # src_root      root directory of source dataset
-    # dst_root      root directory of destination dataset
-    # src_cfg       config path of source dataset
-    # dst_cfg       config path of destination dataset
     parser = argparse.ArgumentParser("Convert dataset format")
     parser.add_argument("--src_format", type=str, required=True, help="Source dataset format.")
     parser.add_argument("--dst_format", type=str, required=True, help="Destination dataset format.")
@@ -37,15 +31,8 @@ def get_args():
                                                                 "If not set, use default path.")
     parser.add_argument("--dst_cfg", type=str, default='', help="Config file path of destination dataset. "
                                                                 "If not set, use default path.")
-    parser.add_argument("--split", type=ast.literal_eval, default=False, help="Whether split dataset if necessary.")
-    # command = "--src_format labelme --dst_format yolo"
-    # command += " --split=True --dst_root=/mnt/d/BaiduNetdiskDownload/labelme2yolo_4"
-    # command += " --dst_cfg=/mnt/d/Code/yolov5/config/data_conversion/yolo_test.yaml"
-    # command += " --src_root --dst_root  --src_cfg  --dst_cfg "
-    # if not command:
-    #     args = parser.parse_args()
-    # else:
-    # args = parser.parse_args(command.split(" "))
+    parser.add_argument("--split", type=ast.literal_eval, default=False, help="Whether split dataset.")
+    args = parser.parse_args()
     return args
 
 

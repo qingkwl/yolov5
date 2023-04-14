@@ -379,7 +379,7 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
                                                  yolov5l                    24
                                                  yolov5x                    
 ```
-- Epoch Time 为 Ascend 910A 机器的测试结果，每张卡的 batch_size 为 32。
+- Epoch Time 为 Ascend 910A 机器 8 卡测试结果，每张卡的 batch_size 为 32。
 - **mAP<sup>val</sup>** 在单模型单尺度上计算，数据集使用 [COCO val2017](http://cocodataset.org) 。<br>关键参数为 `--img_size 640 --conf_thres 0.001 --iou_thres 0.65`。
 
 </details>
