@@ -1,34 +1,40 @@
 # 目录
 
+<details>
+    <summary>点此打开/折叠</summary>
+
 - [目录](#目录)
-- [YOLOv5说明](#YOLOv5说明)
-- [模型架构](#模型架构)
-- [数据集](#数据集)
+- [YOLOv5说明](#[YOLOv5说明](#目录))
+- [模型架构](#[模型架构](#目录))
+- [数据集](#[数据集](#目录))
   - [数据下载](#数据下载)
+  - [数据组织结构](#数据组织结构)
   - [数据转换](#数据转换)
-- [快速入门](#快速入门)
-- [脚本说明](#脚本说明)
-    - [脚本和示例代码](#脚本和示例代码)
-    - [脚本参数](#脚本参数)
-    - [训练过程](#训练过程)
+- [快速入门](#[快速开始](#目录))
+- [脚本说明](#[脚本说明](#目录))
+    - [脚本和示例代码](#[脚本和示例代码](#目录))
+    - [脚本参数](#[脚本参数](#目录))
+    - [训练过程](#[训练过程](#目录))
         - [训练](#训练)
         - [分布式训练](#分布式训练)
-    - [验证过程](#验证过程)
+    - [验证过程](#[验证过程](#目录))
         - [验证](#验证)
-    - [推理过程](#推理过程)
-        - [推理](#推理)
-- [模型说明](#模型说明)
-- [性能](#性能)
+    - [推理过程](#[推理过程](#目录))
+        - [推理](#[推理](#目录))
+- [模型说明](#[模型说明](#目录))
+- [性能](#[性能](#目录))
+
+</details>
 
 
 # [YOLOv5说明](#目录)
 
 
-YOLOv5 于 2020 年 4 月发布，并在 COCO 数据集目标检测任务中取得了 SOTA 成绩。它是对 YOLOv3 的一个重要改进，
+YOLOv5 由 [Ultralytics](https://ultralytics.com/) 于 2020 年 4 月发布，并在 COCO 数据集目标检测任务中取得了 SOTA 成绩。它是对 YOLOv3 的一个重要改进，
 新提出的 **Backbone** 结构以及对于 **Neck** 的改进使得 YOLOv5 在 mAP(mean Average Precision) 上提升了 10%，
 在 FPS(Frame Per Second) 上提升了 12%。
 
-[code](https://github.com/ultralytics/yolov5)
+官方`PyTorch`实现仓库：https://github.com/ultralytics/yolov5
 
 
 # [模型架构](#目录)
@@ -44,57 +50,95 @@ CSPDarknet53 包含了 5 个 CSP 模块，CSP 模块中使用了 kernel size 为
 
 # [数据集](#目录)
 
+`YOLOv5` 使用 `COCO` 数据集的图片，以及 `YOLO` 格式的标注文件进行训练。
+
 ## 数据下载
 数据集: 
 - 原始数据
-  - [训练集](http://images.cocodataset.org/zips/train2017.zip)
-  - [验证集](http://images.cocodataset.org/zips/val2017.zip)
-  - [测试集](http://images.cocodataset.org/zips/test2017.zip)
-- YOLO 格式标注 [coco2017labels](https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels.zip)
-- YOLO 格式分割标注 [coco2017labels-segments](https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels-segments.zip)
+  - 训练集：http://images.cocodataset.org/zips/train2017.zip
+  - 验证集：http://images.cocodataset.org/zips/val2017.zip
+  - 测试集：http://images.cocodataset.org/zips/test2017.zip
+- YOLO 格式标注 `coco2017labels`：https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels.zip
+- YOLO 格式分割标注 `coco2017labels-segments`：https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels-segments.zip
 
 下载原始数据集的图片，并根据模型的不同下载对应的标注文件：
-- YOLOv5n：YOLO 格式标注
-- YOLOv5s：YOLO 格式标注
-- YOLOv5m：YOLO 格式分割标注
-- YOLOv5l：YOLO 格式分割标注
-- YOLOv5x：YOLO 格式分割标注
+
+| Model   | Label                   |
+|---------|-------------------------|
+| YOLOv5n | coco2017labels          |
+| YOLOv5s | coco2017labels          |
+| YOLOv5m | coco2017labels-segments |
+| YOLOv5l | coco2017labels-segments |
+| YOLOv5x | coco2017labels-segments |
+
+## 数据组织结构
+
+数据下载完成后，需要按照如下方式组织数据。其中 `images` 文件夹存放图片，
+`labels` 文件夹存放对应的标签。`train2017.txt`等文本文件中存放了对应
+数据集包含的图片路径。
+
+```txt
+YOLO
+├── images
+|   ├── train2017
+|   ├── val2017
+|   └── test2017
+├── labels
+|   ├── train2017
+|   ├── val2017
+├── images
+|   ├── train2017
+|   ├── val2017
+|   └── test2017
+├── train2017.txt
+├── val2017.txt
+└── test2017.txt
+```
+
 
 ## 数据转换
-如果使用自定义的 COCO 格式或者 labelme 格式的数据集，可以使用我们提供的转换脚本转换成 YOLO 格式。
+
+如果使用自定义的 `COCO` 格式或者 `labelme` 格式的数据集，可以使用我们提供的转换脚本转换成 `YOLO` 格式。
 
 转换步骤：
 1. 进入 `config/data_conversion` 目录。目录下文件名称对应数据集格式，如 `coco.yaml` 表示 COCO 格式数据集的配置；
-2. 配置数据原格式和目标转换格式对应的配置文件；
+2. 配置数据原格式和目标转换格式对应的配置文件，根据实际情况修改其中的路径；
 3. 配置文件编辑完成后，运行 `convert_data.py` 脚本，如 `python convert_data.py coco yolo` 表示将 COCO 数据格式转换为 YOLO 格式。
 
-# [快速入门](#目录)
+# [快速开始](#目录)
 
-按照官方网站的指导安装 MindSpore 之后，您可以使用以下命令来训练或者推理：
+<details>
+<summary>安装</summary>
+
+按照 `MindSpore` [官方网站](https://www.mindspore.cn/install)的指引安装 `mindspore` 模块。
+之后使用以下命令安装其他所需模块：
+
+```shell
+pip install -r requirements.txt
+```
+
+</details>
+
+<details>
+<summary>训练</summary>
+
+您可以使用以下命令进行单卡训练：
 
 ```bash
 # Run training example(1p) on Ascend/GPU by python command
 python train.py \
     --ms_strategy="StaticShape" \
-    --ms_amp_level="O0" \
-    --ms_loss_scaler="static" \
-    --ms_loss_scaler_value=1024 \
-    --ms_optim_loss_scale=1 \
-    --ms_grad_sens=1024 \
     --overflow_still_update=True \
-    --clip_grad=False \
     --optimizer="momentum" \
     --cfg="../config/network/yolov5s.yaml" \
     --data="../config/data/coco.yaml" \
     --hyp="../config/data/hyp.scratch-low.yaml" \
     --device_target=Ascend \
-    --profiler=False \
-    --accumulate=False \
     --epochs=300 \
-    --recompute=False \
-    --recompute_layers=5 \
     --batch_size=32  > log.txt 2>&1 &
 ```
+
+或者使用 `shell` 脚本。脚本支持单卡和多卡训练，使用指令如下：
 
 ```bash
 # Run 1p by shell script, please change `device_target` in config file to run on Ascend/GPU, and change `T_max`, `max_epoch`, `warmup_epochs` refer to contents of notes
@@ -104,13 +148,16 @@ bash run_standalone_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../conf
 # For Ascend device, distributed training example(8p) by shell script
 bash run_distribute_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
      -h ../config/data/hyp.scratch-low.yaml -r hccl_8p_xx.json
-
-# For GPU device, distributed training example(8p) by shell script
-bash run_distribute_train_gpu.sh ../config/network/yolov5s.yaml ../config/data/coco.yaml \
-     ../config/data/hyp.scratch-low.yaml
 ```
 
-您可以输入 `--help` 或者 `-H` 来查看更多 Shell 脚本的使用方法。
+以上脚本可以输入 `--help` 或者 `-H` 来查看更多详细使用方法。
+
+</details>
+
+<details>
+<summary>评估</summary>
+
+您可以使用如下命令评估训练完成的模型：
 
 ```bash
 # Run evaluation on Ascend/GPU by python command
@@ -127,6 +174,11 @@ python test.py \
   --batch_size=32 > log.txt 2>&1 &
 ```
 
+`rect` 开关在某些时候能够增加推理的精度，官方仓库公布的推理结果启用了该开关，
+当您需要对比结果时请注意该差异。
+
+或者您也可以使用 `shell` 脚本进行评估：
+
 ```bash
 # Run distributed evaluation by shell script
 bash run_distribute_test_ascend.sh -w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
@@ -140,41 +192,57 @@ bash run_standalone_test_ascend.sh -w path/to/weights.ckpt -c ../config/network/
 脚本运行相关的配置文件存放在 `config` 文件夹中。`config/data` 路径下的 `coco.yaml` 保存了数据集相关的配置，
 `hyp.scratch-low.yaml` 保存了模型超参数的配置。`yolov5s.yaml` 存放了模型结构的配置。
 
+</details>
+
 # [脚本说明](#目录)
 
 ## [脚本和示例代码](#目录)
 
+<details>
+    <summary>点此展开/折叠</summary>
+
 ```text
 yolov5
 ├── README.md                                      // descriptions about yolov5
+├── README_CN.md                                   // Chinese descriptions about yolov5
 ├── __init__.py
 ├── config
 │   ├── args.py                                    // get config parameters from command line
 │   ├── data
 │   │   ├── coco.yaml                              // configs about dataset
-│   │   └── hyp.scratch-low.yaml                   // configs about hyperparameters
+│   │   ├── hyp.scratch-high.yaml                   // configs about hyper-parameters
+│   │   ├── hyp.scratch-low.yaml
+│   │   └── hyp.scratch-med.yaml
 │   ├── data_conversion
 │   │   ├── coco.yaml                              // config of coco format dataset 
 │   │   ├── labelme.yaml                           // config of labelme format dataset
 │   │   └── yolo.yaml                              // config of yolo format dataset
-│   └── network
-│       └── yolov5s.yaml                           // configs about model architecture
+│   └── network                                    // configs of model architecture
+│       ├── yolov5l.yaml
+│       ├── yolov5m.yaml
+│       ├── yolov5n.yaml
+│       ├── yolov5s.yaml
+│       └── yolov5x.yaml
 ├── convert_data.py                                // convert dataset format
+├── deploy                                         // code for inference
+│   ├── __init__.py
+│   └── infer_engine
+│       ├── __init__.py
+│       ├── lite.py                                // code for inference with MindSporeLite
+│       ├── mindx.py                               // code for inference with mindx
+│       └── model_base.py
 ├── export.py
 ├── preprocess.py
 ├── scripts
 │   ├── common.sh                                  // common functions used in shell scripts 
 │   ├── get_coco.sh
 │   ├── hccl_tools.py                              // generate rank table files for distributed training or evaluation
+│   ├── mpirun_test.sh                             // launch evaluation with OpenMPI
+│   ├── mpirun_train.sh                            // launch training with OpenMPI
 │   ├── run_distribute_test_ascend.sh              // launch distributed evaluation(8p) on Ascend
 │   ├── run_distribute_train_ascend.sh             // launch distributed training(8p) on Ascend
-│   ├── run_distribute_train_gpu.sh                // launch distributed training(8p) on GPU
-│   ├── run_distribute_train_thor_ascend.sh
 │   ├── run_standalone_test_ascend.sh              // launch 1p evaluation on Ascend
-│   ├── run_standalone_test_gpu.sh                 // launch 1p evaluation on GPU
-│   ├── run_standalone_train_ascend.sh             // launch 1p training on Ascend
-│   ├── run_standalone_train_gpu.sh                // launch 1p training on GPU
-│   └── run_standalone_train_model_ascend.sh
+│   └── run_standalone_train_ascend.sh             // launch 1p training on Ascend
 ├── src
 │   ├── __init__.py
 │   ├── all_finite.py
@@ -183,6 +251,13 @@ yolov5
 │   ├── boost.py
 │   ├── callback.py
 │   ├── checkpoint_fuse.py
+│   ├── coco_visual.py
+│   ├── data                                       // code for dataset format conversion
+│   │   ├── __init__.py
+│   │   ├── base.py                                // base class for data conversion
+│   │   ├── coco.py                                // transfer dataset with coco format to others
+│   │   ├── labelme.py                             // transfer dataset with labelme format to others
+│   │   └── yolo.py                                // transfer dataset with yolo format to others
 │   ├── dataset.py                                 // create dataset
 │   ├── general.py                                 // general functions used in other scripts
 │   ├── loss_scale.py
@@ -220,6 +295,8 @@ yolov5
 ```
 
 
+</details>
+
 ## [脚本参数](#目录)
 
 ```text
@@ -231,7 +308,7 @@ optional arguments:
   --device_target         Device where the code will be executed. Default: "Ascend"
   --cfg                   Model architecture yaml config file path. Default: "./config/network/yolov5s.yaml"
   --data                  Dataset yaml config file path. Default: "./config/data/data.yaml"
-  --hyp                   Hyperparameters yaml config file path. Default: "./config/data/hyp.scratch-low.yaml"
+  --hyp                   Hyper-parameters yaml config file path. Default: "./config/data/hyp.scratch-low.yaml"
   --epochs                Training epochs. Default: 300
   --batch_size            Batch size per device. Default: 32
   --save_checkpoint       Whether save checkpoint. Default: True
@@ -251,7 +328,7 @@ optional arguments:
 
 ## [训练过程](#目录)
 
-### Training
+### 训练
 
 对于 Ascend 设备，可以使用以下命令进行单卡训练：
 
@@ -259,23 +336,13 @@ optional arguments:
 # Run training example(1p) on Ascend/GPU by python command
 python train.py \
     --ms_strategy="StaticShape" \
-    --ms_amp_level="O0" \
-    --ms_loss_scaler="static" \
-    --ms_loss_scaler_value=1024 \
-    --ms_optim_loss_scale=1 \
-    --ms_grad_sens=1024 \
     --overflow_still_update=True \
-    --clip_grad=False \
     --optimizer="momentum" \
     --cfg="../config/network/yolov5s.yaml" \
     --data="../config/data/coco.yaml" \
     --hyp="../config/data/hyp.scratch-low.yaml" \
     --device_target=Ascend \
-    --profiler=False \
-    --accumulate=False \
     --epochs=300 \
-    --recompute=False \
-    --recompute_layers=5 \
     --batch_size=32  > log.txt 2>&1 &
 ```
 
@@ -321,7 +388,7 @@ python test.py \
   --img_size=640 \
   --conf=0.001 \
   --rect=False \
-  --iou_thres=0.60 \
+  --iou_thres=0.65 \
   --batch_size=32 > log.txt 2>&1 &
 # OR
 # Run evaluation(8p) by shell script
@@ -346,7 +413,8 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 
 ### [推理](#目录)
 
-训练获得的模型 `ckpt` 可用 `atc` 工具转换为 `om` 格式的模型，在推理服务器上执行推理。
+训练获得的模型 `ckpt` 可用 `atc` 工具转换为 `om` 格式的模型，
+在推理服务器上执行推理。步骤如下：
 
 1. 导出 `AIR` 格式的模型：
   `python export.py --weights /path/to/model.ckpt --file_format AIR`；
@@ -359,13 +427,13 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 
 ## [性能](#目录)
 
-| Model   | size<br><sup>(pixels) | mAP<sup>val<br>50-95<br>rect=True | mAP<sup>val<br>50<br>rect=True | mAP<sup>val<br>50-95<br>rect=False | mAP<sup>val<br>50<br>rect=False | Epoch Time(s) |
-|---------|-----------------------|-----------------------------------|--------------------------------|------------------------------------|---------------------------------|---------------|
-| YOLOv5n | 640                   |                                   |                                |                                    |                                 | 66            |
-| YOLOv5s | 640                   | 0.375                             | 0.572                          | 0.373                              | 0.57                            | 79            |
-| YOLOv5m | 640                   | 0.453                             | 0.637                          | 0.451                              | 0.637                           | 133           |
-| YOLOv5l | 640                   | 0.489                             | 0.675                          | 0.486                              | 0.671                           | 163           |
-| YOLOv5x | 640                   |                                   |                                |                                    |                                 | 221           |
+| Model   | size<br><sup>(pixels) | mAP<sup>val<br>50-95<br>rect=True | mAP<sup>val<br>50<br>rect=True | mAP<sup>val<br>50-95<br>rect=False | mAP<sup>val<br>50<br>rect=False | Epoch Time(s) | Throughput<br>(images/s) |
+|---------|-----------------------|-----------------------------------|--------------------------------|------------------------------------|---------------------------------|---------------|--------------------------|
+| YOLOv5n | 640                   |                                   |                                |                                    |                                 | 66            | 224.00                   |
+| YOLOv5s | 640                   | 0.375                             | 0.572                          | 0.373                              | 0.57                            | 79            | 187.14                   |
+| YOLOv5m | 640                   | 0.453                             | 0.637                          | 0.451                              | 0.637                           | 133           | 111.16                   |
+| YOLOv5l | 640                   | 0.489                             | 0.675                          | 0.486                              | 0.671                           | 163           | 90.70                    |
+| YOLOv5x | 640                   |                                   |                                |                                    |                                 | 221           | 66.90                    |
 
 <details>
 <summary>注释</summary>
@@ -374,12 +442,13 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 - 下面为不同模型训练时使用的配置：
 ```bash
 --data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size 
-                                                 yolov5s                    32
-                                                 yolov5m                    24
-                                                 yolov5l                    24
-                                                 yolov5x                    
+                                                 yolov5s.yaml               32
+                                                 yolov5m.yaml               24
+                                                 yolov5l.yaml               24
+                                                 yolov5x.yaml               
 ```
-- Epoch Time 为 Ascend 910A 机器 8 卡测试结果，每张卡的 batch_size 为 32。
+- `Epoch Time` 为 Ascend 910A 机器 8 卡测试结果，每张卡的 batch_size 为 32。
+- `Throughput` 为 Ascend 910A 的单卡吞吐率。
 - **mAP<sup>val</sup>** 在单模型单尺度上计算，数据集使用 [COCO val2017](http://cocodataset.org) 。<br>关键参数为 `--img_size 640 --conf_thres 0.001 --iou_thres 0.65`。
 
 </details>
