@@ -21,10 +21,10 @@ import threading
 import time
 from pathlib import Path
 
-import mindspore as ms
-import mindspore.nn as nn
 import numpy as np
 import pkg_resources as pkg
+import mindspore as ms
+import mindspore.nn as nn
 from mindspore import ops
 
 from src.logging import get_logger, set_logger
@@ -58,11 +58,10 @@ def check_file(file):
     # Search for file if not found
     if Path(file).is_file() or file == '':
         return file
-    else:
-        files = glob.glob('./**/' + file, recursive=True)  # find file
-        assert len(files), f'File Not Found: {file}'  # assert file was found
-        assert len(files) == 1, f"Multiple files match '{file}', specify exact path: {files}"  # assert unique
-        return files[0]  # return file
+    files = glob.glob('./**/' + file, recursive=True)  # find file
+    assert len(files), f'File Not Found: {file}'  # assert file was found
+    assert len(files) == 1, f"Multiple files match '{file}', specify exact path: {files}"  # assert unique
+    return files[0]  # return file
 
 
 def coco80_to_coco91_class():  # converts 80-index (val2014) to 91-index (paper)
@@ -211,17 +210,16 @@ def increment_path(path, exist_ok=True, sep=''):
     path = Path(path)  # os-agnostic
     if (path.exists() and exist_ok) or (not path.exists()):
         return str(path)
-    else:
-        dirs = glob.glob(f"{path}{sep}*")  # similar paths
-        matches = [re.search(rf"%s{sep}(\d+)" % path.stem, d) for d in dirs]
-        i = [int(m.groups()[0]) for m in matches if m]  # indices
-        n = max(i) + 1 if i else 2  # increment number
-        return f"{path}{sep}{n}"  # update path
+    dirs = glob.glob(f"{path}{sep}*")  # similar paths
+    matches = [re.search(rf"%s{sep}(\d+)" % path.stem, d) for d in dirs]
+    i = [int(m.groups()[0]) for m in matches if m]  # indices
+    n = max(i) + 1 if i else 2  # increment number
+    return f"{path}{sep}{n}"  # update path
 
 
-def colorstr(*input):
+def colorstr(*inputs):
     # Colors a string https://en.wikipedia.org/wiki/ANSI_escape_code, i.e.  colorstr('blue', 'hello world')
-    *args, string = input if len(input) > 1 else ('blue', 'bold', input[0])  # color arguments, string
+    *args, string = inputs if len(inputs) > 1 else ('blue', 'bold', inputs[0])  # color arguments, string
     colors = {'black': '\033[30m',  # basic colors
               'red': '\033[31m',
               'green': '\033[32m',
@@ -431,7 +429,7 @@ class COCOEval(COCOeval):
             p = self.params
             iStr = ' {:<18} {} @[ IoU={:<9} | area={:>6s} | maxDets={:>3d} ] = {:0.3f}'
             titleStr = 'Average Precision' if ap == 1 else 'Average Recall'
-            typeStr = '(AP)' if ap==1 else '(AR)'
+            typeStr = '(AP)' if ap == 1 else '(AR)'
             iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
                 if iouThr is None else '{:0.2f}'.format(iouThr)
 
@@ -470,15 +468,21 @@ class COCOEval(COCOeval):
             stats[0], stats_str[0] = _summarize(1, categoryId=categoryId)
             stats[1], stats_str[1] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2], categoryId=categoryId)
             stats[2], stats_str[2] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[3], stats_str[3] = _summarize(1, areaRng='small', maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[4], stats_str[4] = _summarize(1, areaRng='medium', maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[5], stats_str[5] = _summarize(1, areaRng='large', maxDets=self.params.maxDets[2], categoryId=categoryId)
+            stats[3], stats_str[3] = _summarize(1, areaRng='small',
+                                                maxDets=self.params.maxDets[2],categoryId=categoryId)
+            stats[4], stats_str[4] = _summarize(1, areaRng='medium',
+                                                maxDets=self.params.maxDets[2], categoryId=categoryId)
+            stats[5], stats_str[5] = _summarize(1, areaRng='large',
+                                                maxDets=self.params.maxDets[2], categoryId=categoryId)
             stats[6], stats_str[6] = _summarize(0, maxDets=self.params.maxDets[0], categoryId=categoryId)
             stats[7], stats_str[7] = _summarize(0, maxDets=self.params.maxDets[1], categoryId=categoryId)
             stats[8], stats_str[8] = _summarize(0, maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[9], stats_str[9] = _summarize(0, areaRng='small', maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[10], stats_str[10] = _summarize(0, areaRng='medium', maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[11], stats_str[11] = _summarize(0, areaRng='large', maxDets=self.params.maxDets[2], categoryId=categoryId)
+            stats[9], stats_str[9] = _summarize(0, areaRng='small',
+                                                maxDets=self.params.maxDets[2], categoryId=categoryId)
+            stats[10], stats_str[10] = _summarize(0, areaRng='medium',
+                                                  maxDets=self.params.maxDets[2], categoryId=categoryId)
+            stats[11], stats_str[11] = _summarize(0, areaRng='large',
+                                                  maxDets=self.params.maxDets[2], categoryId=categoryId)
             return stats, '\n'.join(stats_str)
 
         def _summarizeKps(categoryId=None):
@@ -499,7 +503,7 @@ class COCOEval(COCOeval):
         if not self.eval:
             raise Exception('Please run accumulate() first')
         iouType = self.params.iouType
-        if iouType == 'segm' or iouType == 'bbox':
+        if iouType in ('segm', 'bbox'):
             summarize = _summarizeDets
         elif iouType == 'keypoints':
             summarize = _summarizeKps

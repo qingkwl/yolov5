@@ -23,9 +23,9 @@ from multiprocessing.pool import Pool, ThreadPool
 from pathlib import Path
 
 import cv2
-import mindspore.dataset as de
-import numpy as np
 import psutil
+import numpy as np
+import mindspore.dataset as de
 from mindspore.dataset import vision
 from mindspore.dataset.vision import Inter
 from PIL import ExifTags, Image, ImageOps
@@ -40,7 +40,7 @@ from src.general import segments2boxes, xyn2xy, xywhn2xyxy, xyxy2xywhn
 HELP_URL = 'See https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
 IMG_FORMATS = 'bmp', 'dng', 'jpeg', 'jpg', 'mpo', 'png', 'tif', 'tiff', 'webp', 'pfm'  # include image suffixes
 VID_FORMATS = 'asf', 'avi', 'gif', 'm4v', 'mkv', 'mov', 'mp4', 'mpeg', 'mpg', 'ts', 'wmv'  # include video suffixes
-PIN_MEMORY = str(os.getenv('PIN_MEMORY', True)).lower() == 'true'  # global pin_memory for dataloaders
+PIN_MEMORY = str(os.getenv('PIN_MEMORY', "True")).lower() == 'true'  # global pin_memory for dataloaders
 TQDM_BAR_FORMAT = '{l_bar}{bar:10}{r_bar}'  # tqdm bar format
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of YOLOv5 multiprocessing threads
 
@@ -67,7 +67,7 @@ def exif_size(img):
             s = (s[1], s[0])
         elif rotation == 8:  # rotation 90
             s = (s[1], s[0])
-    except:
+    except Exception:
         pass
 
     return s
@@ -209,7 +209,8 @@ class LoadImagesAndLabels:  # for training/testing
         assert nf > 0 or not augment, f'{prefix}No labels found in {cache_path}, can not start training. {HELP_URL}'
 
         # Read cache
-        [cache.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
+        for k in ('hash', 'version', 'msgs'):   # remove items
+            cache.pop(k)
         # labels: tuple(Nx5 ndarray)
         # shapes: tuple(tuple(int, int))
         labels, shapes, self.segments = zip(*cache.values())
@@ -435,7 +436,6 @@ class LoadImagesAndLabels:  # for training/testing
                     sample_labels += sample_labels_
                     sample_images += sample_images_
                     sample_masks += sample_masks_
-                    # print(len(sample_labels))
                     if len(sample_labels) == 0:
                         break
                 labels = pastein(img, labels, sample_labels, sample_images, sample_masks)
@@ -457,7 +457,7 @@ class LoadImagesAndLabels:  # for training/testing
 
     def load_image(self, i):
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
-        im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i],
+        im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i]
         if im is None:  # not cached in RAM
             if fn.exists():  # load npy
                 im = np.load(fn)
@@ -485,9 +485,9 @@ class LoadImagesAndLabels:  # for training/testing
         yc, xc = (int(random.uniform(-x, 2 * s + x)) for x in self.mosaic_border)  # mosaic center x, y
         indices = [index] + random.choices(self.indices, k=3)  # 3 additional image indices
         random.shuffle(indices)
-        for i, index in enumerate(indices):
+        for i, idx in enumerate(indices):
             # Load image
-            img, _, (h, w) = self.load_image(index)
+            img, _, (h, w) = self.load_image(idx)
 
             # place img in img4
             if i == 0:  # top left
@@ -509,7 +509,7 @@ class LoadImagesAndLabels:  # for training/testing
             padh = y1a - y1b
 
             # Labels
-            labels, segments = self.labels[index].copy(), self.segments[index].copy()
+            labels, segments = self.labels[idx].copy(), self.segments[idx].copy()
             if labels.size:
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
                 segments = [xyn2xy(x, w, h, padw, padh) for x in segments]
@@ -622,7 +622,7 @@ class LoadImagesAndLabels:  # for training/testing
     @staticmethod
     def collate_fn4(img, label, path, shapes, batch_info):
         n = len(img) // 4
-        img4, label4, path4, shapes4 = [], [], path[:n], shapes[:n]
+        img4, label4, path4, _ = [], [], path[:n], shapes[:n]
 
         ho = np.array([[0., 0, 0, 1, 0, 0]])
         wo = np.array([[0., 0, 1, 0, 0, 0]])
@@ -647,7 +647,7 @@ class LoadImagesAndLabels:  # for training/testing
         for i, l in enumerate(label4):
             l[:, 0] = i  # add target image index for build_targets()
 
-        return np.stack(img4, 0).astype(np.float32), np.stack(label4, 0).astype(np.float32), path4,
+        return np.stack(img4, 0).astype(np.float32), np.stack(label4, 0).astype(np.float32), path4
 
 
 def create_dataloader(path, imgsz, batch_size, stride, opt, epoch_size=300, hyp=None,
