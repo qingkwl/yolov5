@@ -16,9 +16,9 @@
 import copy
 import math
 
+import numpy as np
 import mindspore as ms
 import mindspore.numpy as mnp
-import numpy as np
 from mindspore import Tensor, nn, ops
 from mindspore.common.initializer import HeUniform
 
@@ -302,7 +302,7 @@ class Proto(nn.Cell):
 class Segment(Detect):
     # YOLOv5 Segment head for segmentation models
     def __init__(self, nc=80, anchors=(), nm=32, npr=256, ch=(), inplace=True):
-        super().__init__(nc, anchors, ch, inplace)
+        super().__init__(nc, anchors, ch)
         self.nm = nm  # number of masks
         self.npr = npr  # number of protos
         self.no = 5 + nc + self.nm  # number of outputs per anchor
@@ -369,10 +369,10 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
         m_ = nn.SequentialCell([m(*args) for _ in range(n)]) if n > 1 else m(*args)
 
         t = str(m)  # module type
-        np = sum([x.size for x in m_.get_parameters()])  # number params
-        m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
+        num_param = sum([x.size for x in m_.get_parameters()])  # number params
+        m_.i, m_.f, m_.type, m_.np = i, f, t, num_param  # attach index, 'from' index, type, number params
         layers_param.append((i, f, t, np))
-        print('%3s%18s%3s%10.0f  %-40s%-30s' % (i, f, n, np, t, args))  # print
+        print('%3s%18s%3s%10.0f  %-40s%-30s' % (i, f, n, num_param, t, args))  # print
         save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
         layers.append(m_)
         if i == 0:

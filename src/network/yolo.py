@@ -18,8 +18,8 @@ import random
 from copy import deepcopy
 from pathlib import Path
 
-import mindspore as ms
 import numpy as np
+import mindspore as ms
 from mindspore import Tensor, nn, ops
 
 from src.autoanchor import check_anchor_order
@@ -46,18 +46,17 @@ def scale_img(img, ratio=1.0, same_shape=False, gs=32):  # img(16,3,256,416)
     # scales img(bs,3,y,x) by ratio constrained to gs-multiple
     if ratio == 1.0:
         return img
-    else:
-        h, w = img.shape[2:]
-        s = (int(h * ratio), int(w * ratio))  # new size
-        img = ops.ResizeBilinear(size=s, align_corners=False)(img)
-        if not same_shape:  # pad/crop img
-            h, w = _get_h_w_list(ratio, gs, (h, w))
+    h, w = img.shape[2:]
+    s = (int(h * ratio), int(w * ratio))  # new size
+    img = ops.ResizeBilinear(size=s, align_corners=False)(img)
+    if not same_shape:  # pad/crop img
+        h, w = _get_h_w_list(ratio, gs, (h, w))
 
-        # img = F.pad(img, [0, w - s[1], 0, h - s[0]], value=0.447)  # value = imagenet mean
-        img = ops.pad(img, ((0, 0), (0, 0), (0, w - s[1]), (0, h - s[0])))
-        img[:, :, -(w - s[1]):, :] = 0.447
-        img[:, :, :, -(h - s[0]):] = 0.447
-        return img
+    # img = F.pad(img, [0, w - s[1], 0, h - s[0]], value=0.447)  # value = imagenet mean
+    img = ops.pad(img, ((0, 0), (0, 0), (0, w - s[1]), (0, h - s[0])))
+    img[:, :, -(w - s[1]):, :] = 0.447
+    img[:, :, :, -(h - s[0]):] = 0.447
+    return img
 
 
 @ops.constexpr
@@ -114,7 +113,7 @@ class Model(nn.Cell):
         # Build strides, anchors
         m = self.model[-1]  # Detect()
         if isinstance(m, Detect):
-            s = 256  # 2x min stride
+            # s = 256  # 2x min stride
             # m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
             m.stride = Tensor(np.array(self.yaml['stride']), ms.int32)
             check_anchor_order(m)
@@ -154,11 +153,10 @@ class Model(nn.Cell):
                     yi[..., 0] = img_size[1] - yi[..., 0]  # de-flip lr
                 y += (yi,)
             return ops.concat(y, 1)  # augmented inference, train
-        else:
-            return self.forward_once(x)  # single-scale inference, train
+        return self.forward_once(x)  # single-scale inference, train
 
     def forward_once(self, x):
-        y, dt = (), ()  # outputs
+        y, _ = (), ()  # outputs
         for i in range(len(self.model)):
             m = self.model[i]
             iol, f, _, _ = self.layers_param[i]  # iol: index of layers
@@ -199,7 +197,7 @@ class Model(nn.Cell):
             mi.bias = ops.assign(mi.bias, Tensor(b, ms.float32).view(-1))
 
 
-if __name__ == '__main__':
+def main():
     from mindspore import context
 
     context.set_context(mode=context.GRAPH_MODE, pynative_synchronize=True)
@@ -211,3 +209,7 @@ if __name__ == '__main__':
     # x = Tensor(np.random.randn(1, 3, 160, 160), ms.float32)
     # pred = model(x)
     # print(pred)
+
+
+if __name__ == '__main__':
+    main()

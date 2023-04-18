@@ -15,9 +15,9 @@
 
 import math
 
+import numpy as np
 import mindspore as ms
 import mindspore.numpy as mnp
-import numpy as np
 from mindspore import Tensor, nn, ops
 
 CLIP_VALUE = 1000.
@@ -201,7 +201,7 @@ def bbox_iou_2(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, ep
                     (b2_y1 + b2_y2 - b1_y1 - b1_y2) ** 2) / 4  # center distance squared
             if DIoU:
                 return iou - rho2 / c2  # DIoU
-            elif CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
+            if CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
                 v = (4 / math.pi ** 2) * ops.pow(ops.atan(w2 / (h2 + eps)) - ops.atan(w1 / (h1 + eps)), 2)
                 alpha = v / (v - iou + (1 + eps))
                 alpha = ops.stop_gradient(alpha)
@@ -274,10 +274,10 @@ class BCEWithLogitsLoss(nn.Cell):
             if mask is not None:
                 return (loss.sum() / mask.astype(loss.dtype).sum().clip(1, None)).astype(ori_dtype)
             return loss.mean().astype(ori_dtype)
-        elif self.reduction == 'sum':
+        if self.reduction == 'sum':
             return loss.sum().astype(ori_dtype)
-        else:  # 'none'
-            return loss.astype(ori_dtype)
+        # 'none'
+        return loss.astype(ori_dtype)
 
 
 class ComputeLoss(nn.Cell):
