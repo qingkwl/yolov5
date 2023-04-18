@@ -15,9 +15,9 @@
 
 from __future__ import annotations
 
-import yaml
 from pathlib import Path
 from typing import Type
+import yaml
 
 from src.data.base import BaseArgs, COCOArgs, YOLOArgs, LabelmeArgs, exists
 from src.data.coco import COCOManager
@@ -59,9 +59,7 @@ def merge_args(config):
         config.val = str(args.val_anno)
         config.test = str(args.test_anno)
         config.nc = int(args.nc)
-        from pathlib import Path
-        if isinstance(args.names, str) or isinstance(args.names, Path):
-            from src.data.yolo import YOLOManager
+        if isinstance(args.names, (str, Path)):
             config.names = YOLOManager.read_txt(args.names)
     else:
         raise NotImplementedError(f"Unsupported dataset {dataset_name}.")

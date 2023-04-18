@@ -211,7 +211,7 @@ class COCOManager(BaseManager):
         """
         if isinstance(src_dir, str) and (not src_dir):
             self.logger.warning("The given 'src_dir' is empty.")
-            return None
+            return
         src_dir = Path(src_dir)
         if mode == "train":
             ann_file, dst_dir = self.args.train_anno, self.args.train_dir

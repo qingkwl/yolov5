@@ -88,7 +88,7 @@ class YOLOManager(BaseManager):
         return data
 
     def _get_class_names(self) -> dict[int, str]:
-        if isinstance(self.args.names, str) or isinstance(self.args.names, Path):
+        if isinstance(self.args.names, (str, Path)):
             categories = self.read_txt(self.args.names)
         elif isinstance(self.args.names, list):
             categories = self.args.names
@@ -169,7 +169,7 @@ class YOLOManager(BaseManager):
                     self.logger.warning(f"Label [{label_path}] not found.")
                     continue
                 _ann = self._get_annotations(label_path, img_info)
-                if len(_ann):
+                if len(_ann) > 0:
                     _annotations.extend(_ann)
         # TODO: Initialize dataset information for converting to COCO
         json_data = {

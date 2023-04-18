@@ -55,12 +55,11 @@ class Encoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
             return int(obj)
-        elif isinstance(obj, np.floating):
+        if isinstance(obj, np.floating):
             return float(obj)
-        elif isinstance(obj, np.ndarray):
+        if isinstance(obj, np.ndarray):
             return obj.tolist()
-        else:
-            return super(Encoder, self).default(obj)
+        return super(Encoder, self).default(obj)
 
 
 class LabelmeManager(BaseManager):
@@ -103,7 +102,7 @@ class LabelmeManager(BaseManager):
     def _convert_to_coco(self, data_dir: Path, target_dir: Path, copy_images: bool = True) -> dict[str, Any]:
         json_file_list = list(data_dir.rglob("*.json"))
         with logging_redirect_tqdm(loggers=[self.logger]):
-            for idx, json_file in enumerate(tqdm(json_file_list)):
+            for _, json_file in enumerate(tqdm(json_file_list)):
                 img_id = self.img_id
                 try:
                     img_info, img_data = self._get_img_info(img_id, json_file)
@@ -175,8 +174,7 @@ class LabelmeManager(BaseManager):
         return img_info, img_data
 
     def is_img_suffix(self, suffix: str) -> bool:
-        suffix = suffix.lower()
-        return (suffix == ".jpg") or (suffix == ".png") or (suffix == ".bmp")
+        return suffix.lower() in ('.jpg', '.png', '.bmp')
 
     def _to_coco(self, data_config: BaseArgs, copy_images: bool = False) -> None:
         def _convert_data(data_dir: PATH, target_dir: PATH, target_json: PATH):

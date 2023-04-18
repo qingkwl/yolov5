@@ -15,11 +15,11 @@
 
 from __future__ import annotations
 
-import os
-import yaml
 from dataclasses import dataclass
 from typing import Union
 from pathlib import Path
+import os
+import yaml
 
 from src.general import LOGGER
 
@@ -180,7 +180,7 @@ class YOLOArgs(BaseArgs):
         self.val_anno = join_path(self.root, self.val_anno)
         self.test_anno = join_path(self.root, self.test_anno)
         self.data_anno = join_path(self.root, self.data_anno)
-        if isinstance(self.names, str) or isinstance(self.names, Path):
+        if isinstance(self.names, (str, Path)):
             self.names = join_path(self.root, self.names)
 
     def make_dirs(self):
