@@ -14,7 +14,7 @@ import mindspore as ms
 from mindspore import SummaryRecord
 
 LOGGERS = ('csv', 'ms')  # ('csv', 'tb', 'wandb', 'clearml', 'comet')  # *.csv, TensorBoard, Weights & Biases, ClearML
-RANK = int(os.getenv('RANK_ID', -1))
+RANK = int(os.getenv('RANK_ID', "-1"))
 
 wandb = None
 clearml = None
@@ -98,4 +98,3 @@ class SummaryLoggers:
 
     def on_params_update(self, params: dict):
         pass
-
