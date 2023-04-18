@@ -26,16 +26,13 @@
 
 </details>
 
-
 # [YOLOv5说明](#目录)
-
 
 YOLOv5 由 [Ultralytics](https://ultralytics.com/) 于 2020 年 4 月发布，并在 COCO 数据集目标检测任务中取得了 SOTA 成绩。它是对 YOLOv3 的一个重要改进，
 新提出的 **Backbone** 结构以及对于 **Neck** 的改进使得 YOLOv5 在 mAP(mean Average Precision) 上提升了 10%，
 在 FPS(Frame Per Second) 上提升了 12%。
 
 官方`PyTorch`实现仓库：https://github.com/ultralytics/yolov5
-
 
 # [模型架构](#目录)
 
@@ -47,13 +44,14 @@ YOLOv4 使用 PANet 替换了 YOLOv3 中的 Feature Pyramid Networks(FPN) 来检
 CSPDarknet53 包含了 5 个 CSP 模块，CSP 模块中使用了 kernel size 为 3x3, stride 为 2x2 的卷积层；
 而在 PANet 和 SPP 中使用了 1x1、5x5、9x9、13x13 的 max pooling 网络层。
 
-
 # [数据集](#目录)
 
 `YOLOv5` 使用 `COCO` 数据集的图片，以及 `YOLO` 格式的标注文件进行训练。
 
 ## 数据下载
-数据集: 
+
+数据集:
+
 - 原始数据
   - 训练集：http://images.cocodataset.org/zips/train2017.zip
   - 验证集：http://images.cocodataset.org/zips/val2017.zip
@@ -95,12 +93,12 @@ YOLO
 └── test2017.txt
 ```
 
-
 ## 数据转换
 
 如果使用自定义的 `COCO` 格式或者 `labelme` 格式的数据集，可以使用我们提供的转换脚本转换成 `YOLO` 格式。
 
 转换步骤：
+
 1. 进入 `config/data_conversion` 目录。目录下文件名称对应数据集格式，如 `coco.yaml` 表示 COCO 格式数据集的配置；
 2. 配置数据原格式和目标转换格式对应的配置文件，根据实际情况修改其中的路径；
 3. 配置文件编辑完成后，运行 `convert_data.py` 脚本，如 `python convert_data.py coco yolo` 表示将 COCO 数据格式转换为 YOLO 格式。
@@ -214,7 +212,7 @@ yolov5
 │   │   ├── hyp.scratch-low.yaml
 │   │   └── hyp.scratch-med.yaml
 │   ├── data_conversion
-│   │   ├── coco.yaml                              // config of coco format dataset 
+│   │   ├── coco.yaml                              // config of coco format dataset
 │   │   ├── labelme.yaml                           // config of labelme format dataset
 │   │   └── yolo.yaml                              // config of yolo format dataset
 │   └── network                                    // configs of model architecture
@@ -234,7 +232,7 @@ yolov5
 ├── export.py
 ├── preprocess.py
 ├── scripts
-│   ├── common.sh                                  // common functions used in shell scripts 
+│   ├── common.sh                                  // common functions used in shell scripts
 │   ├── get_coco.sh
 │   ├── hccl_tools.py                              // generate rank table files for distributed training or evaluation
 │   ├── mpirun_test.sh                             // launch evaluation with OpenMPI
@@ -294,7 +292,6 @@ yolov5
 └── train.py                                       // script for training
 ```
 
-
 </details>
 
 ## [脚本参数](#目录)
@@ -324,7 +321,6 @@ optional arguments:
   --eval_start_epoch      Epoch index after which model will do evaluation. Default: 200
   --eval_epoch_interval   Epoch interval to do evaluation. Default: 10
 ```
-
 
 ## [训练过程](#目录)
 
@@ -370,7 +366,6 @@ bash mpirun_train.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.ya
      -h ../config/data/hyp.scratch-low.yaml
 ```
 
-
 ## [验证过程](#目录)
 
 ### 验证
@@ -404,6 +399,7 @@ bash run_standalone_test_ascend.sh --w path/to/weights.ckpt -c ../config/network
 
 也可以使用 OpenMPI 运行分布式推理。需要按照[官方教程](https://www.mindspore.cn/tutorials/experts/zh-CN/r2.0.0-alpha/parallel/train_gpu.html#%E9%85%8D%E7%BD%AE%E5%88%86%E5%B8%83%E5%BC%8F%E7%8E%AF%E5%A2%83)
 配置好 OpenMPI 环境，然后执行以下命令：
+
 ```bash
 bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
      -h ../config/data/hyp.scratch-low.yaml
@@ -419,7 +415,7 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 1. 导出 `AIR` 格式的模型：
   `python export.py --weights /path/to/model.ckpt --file_format AIR`；
 2. 使用 `atc` 工具将 `AIR` 格式模型转换为 `om` 格式：
-  `/usr/local/Ascend/lates/atc/bin/atc --model=yolov5s.om --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
+  `/usr/local/Ascend/latest/atc/bin/atc --model=yolov5s.om --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
   其中 `--soc_version` 可通过 `npu-smi info` 指令查看，支持 `Ascend310`，`Ascend310P3` 等；
 3. 通过 `infer.py` 脚本执行推理：`python infer.py --batch_size 1 --om yolov5s.om`
 
@@ -440,13 +436,15 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 
 - 所有模型都使用默认配置，训练 300 epochs。YOLOv5n和YOLOv5s模型使用 hyp.scratch-low.yaml 配置，其他模型都使用 hyp.scratch-high.yaml 配置。
 - 下面为不同模型训练时使用的配置：
+
 ```bash
---data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size 
+--data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size
                                                  yolov5s.yaml               32
                                                  yolov5m.yaml               24
                                                  yolov5l.yaml               24
-                                                 yolov5x.yaml               
+                                                 yolov5x.yaml
 ```
+
 - `Epoch Time` 为 Ascend 910A 机器 8 卡测试结果，每张卡的 batch_size 为 32。
 - `Throughput` 为 Ascend 910A 的单卡吞吐率。
 - **mAP<sup>val</sup>** 在单模型单尺度上计算，数据集使用 [COCO val2017](http://cocodataset.org) 。<br>关键参数为 `--img_size 640 --conf_thres 0.001 --iou_thres 0.65`。
