@@ -18,8 +18,8 @@ import os
 import time
 from pathlib import Path
 
-import numpy as np
 import yaml
+import numpy as np
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
@@ -36,7 +36,7 @@ def Detect(nc=80, anchor=(), stride=()):
     no = nc + 5
     nl = len(anchor)
     na = len(anchor[0]) // 2
-    anchor_grid = np.array(anchor).reshape(nl, 1, -1, 1, 1, 2)
+    anchor_grid = np.array(anchor).reshape((nl, 1, -1, 1, 1, 2))
 
     def forward(x):
         z = ()
@@ -90,9 +90,9 @@ def infer(opt):
     nms_times = 0.
     result_dicts = []
     for i, meta in enumerate(loader):
-        img, targets, paths, shapes = meta["img"], meta["label_out"], meta["img_files"], meta["shapes"]
+        img, paths, shapes = meta["img"], meta["img_files"], meta["shapes"]
         img = img / 255.0
-        nb, _, height, width = img.shape
+        _, _, height, width = img.shape
 
         # Run infer
         _t = time.time()
@@ -137,14 +137,14 @@ def infer(opt):
     try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
         anno = COCO(anno_json_path)  # init annotations api
         pred = anno.loadRes(result_dicts)  # init predictions api
-        eval = COCOeval(anno, pred, 'bbox')
+        coco_eval = COCOeval(anno, pred, 'bbox')
         if is_coco_dataset:
             # eval.params.imgIds = [int(Path(im_file).stem) for im_file in val_dataset.img_files]
-            eval.params.imgIds = [int(Path(im_file).stem) for im_file in val_dataset.im_files]
-        eval.evaluate()
-        eval.accumulate()
-        eval.summarize()
-        map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
+            coco_eval.params.imgIds = [int(Path(im_file).stem) for im_file in val_dataset.im_files]
+        coco_eval.evaluate()
+        coco_eval.accumulate()
+        coco_eval.summarize()
+        mean_ap, map50 = coco_eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
     except Exception as e:
         LOGGER.exception('pycocotools unable to run:')
         raise e
@@ -153,7 +153,7 @@ def infer(opt):
         (height, width, opt.batch_size)  # tuple
     LOGGER.info(f'Speed: %.1f/%.1f/%.1f ms inference/NMS/total per %gx%g image at batch-size %g;' % t)
 
-    return map, map50
+    return mean_ap, map50
 
 
 def main():
