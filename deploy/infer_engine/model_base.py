@@ -33,16 +33,15 @@ class ModelBase(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def infer(self, input: np.numarray) -> List[np.numarray]:
+    def infer(self, x: np.numarray) -> List[np.numarray]:
         """
         model inference, just for single input
         Args:
-            input: np img
+            x: np img
 
         Returns:
 
         """
-        pass
 
     def __del__(self):
         if hasattr(self, "model") and self.model:

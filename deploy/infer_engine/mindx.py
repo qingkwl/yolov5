@@ -34,8 +34,8 @@ class MindXModel(ModelBase):
         if not self.model:
             raise ValueError(f"The model file {self.model_path} load failed.")
 
-    def infer(self, input):
-        inputs = Tensor(input)
+    def infer(self, x):
+        inputs = Tensor(x)
         outputs = self.model.infer(inputs)
         list([output.to_host() for output in outputs])
         outputs = [np.array(output) for output in outputs]

@@ -17,9 +17,9 @@ python export.py
 """
 import os
 
-import mindspore as ms
-import numpy as np
 import yaml
+import numpy as np
+import mindspore as ms
 from mindspore import Tensor, context, export
 
 from config.args import get_args_export
@@ -63,7 +63,11 @@ def run_export(opt):
     export(net, input_arr, file_name=file_name, file_format=opt.file_format)
 
 
-if __name__ == '__main__':
+def main():
     parser = get_args_export()
     opt = parser.parse_args()
     run_export(opt)
+
+
+if __name__ == '__main__':
+    main()
