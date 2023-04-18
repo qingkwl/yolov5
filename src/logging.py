@@ -13,10 +13,10 @@
 # limitations under the License.
 # ============================================================================
 
-import logging
-import logging.config
 import os
 import sys
+import logging
+import logging.config
 from logging import Filter, Formatter, Logger, LogRecord, StreamHandler
 from logging.handlers import RotatingFileHandler
 from pathlib import Path

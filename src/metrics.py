@@ -183,7 +183,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         x = x[xc[xi]]  # confidence
 
         # Cat apriori labels if autolabelling
-        if labels and len(labels[xi]):
+        if len(labels) > 0 and len(labels[xi]) > 0:
             l = labels[xi]
             v = np.zeros((len(l), nc + 5))
             v[:, :4] = l[:, 1:5]  # box
@@ -346,7 +346,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls, v5_metric=False, plot=False, sa
     # return p[:, i], r[:, i], ap, f1[:, i], unique_classes.astype('int32')
     i = smooth(f1.mean(0), 0.1).argmax()  # max F1 index
     p, r, f1 = p[:, i], r[:, i], f1[:, i]
-    eps=1e-16
+    eps = 1e-16
     tp = (r * nt).round()  # true positives
     fp = (tp / (p + eps) - tp).round()  # false positives
     return tp, fp, p, r, f1, ap, unique_classes.astype(int)

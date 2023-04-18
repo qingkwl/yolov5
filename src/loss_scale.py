@@ -103,7 +103,7 @@ class TrainOneStepGrad(nn.Cell):
     def __init__(self, yolo_net, compute_loss, ema, optimizer, opt, loss_scaler=None, sens=1.0):
         super(TrainOneStepGrad, self).__init__()
         self.ema = ema
-        self.enable_ema = False if ema is None else True
+        self.enable_ema = ema is not None
         self.rank_size = opt.rank_size
         self.yolo_net = yolo_net
         self.yolo_net.set_train(True)

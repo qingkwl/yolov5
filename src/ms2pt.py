@@ -28,7 +28,7 @@ def ms2pt(src_ckpt_path):
     ms_params = load_checkpoint(src_ckpt_path)
     new_params = defaultdict()
     for k, v in ms_params.items():
-        k_backup = k
+        # k_backup = k
         elem_list = k.split('.')
         if len(elem_list) <= 1:
             print("k", k)
@@ -71,12 +71,15 @@ def amend_pt(src_ckpt_path, src_pt_path, dst_ckpt_path):
     #print(torch_dict)
 
 
-if __name__ == "__main__":
+def main():
     # 修改src_pt_path, dst_ckpt_path
     import sys
-    
     src_pt_path = 'epoch0.pt'
     src_ckpt_path = sys.argv[1]
     print("[INFO] src_ckpt_path:", src_ckpt_path)
     dst_ckpt_path = './yolov5s_ms2pt.pt'
     amend_pt(src_ckpt_path, src_pt_path, dst_ckpt_path)
+
+
+if __name__ == "__main__":
+    main()
