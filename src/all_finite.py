@@ -34,10 +34,10 @@ def compare_version(v1, v2="1.9.0"):
             return 1
     if len(l1) == len(l2):
         return 0
-    elif len(l1) < len(l2):
+    if len(l1) < len(l2):
         return -1
-    else:
-        return 1
+    return 1
+
 
 if compare_version(ms.__version__) < 0:
     from mindspore import context, ops
