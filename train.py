@@ -21,11 +21,11 @@ from collections import deque
 from contextlib import nullcontext
 from pathlib import Path
 
+import yaml
+import numpy as np
 import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
-import numpy as np
-import yaml
 from mindspore import Parameter, Tensor, context
 from mindspore.communication.management import get_group_size, get_rank, init
 from mindspore.context import ParallelMode
@@ -138,7 +138,7 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
     del param_dict
     infer_model.set_train(False)
     test_manager = TestManager(opt)
-    metric_stats, _, _, coco_result = test_manager.test(infer_model, val_dataset, val_dataloader, cur_epoch)
+    _, _, _, coco_result = test_manager.test(infer_model, val_dataset, val_dataloader, cur_epoch)
     infer_model.set_train(True)
     return coco_result
 
@@ -491,7 +491,7 @@ def main():
     opt.save_json |= opt.data.endswith('coco.yaml')
     # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
-    assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'
+    assert len(opt.cfg) > 0 or len(opt.weights) > 0, 'either --cfg or --weights must be specified'
     opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
     opt.name = 'evolve' if opt.evolve else opt.name
     opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
@@ -499,7 +499,7 @@ def main():
     ms_mode = context.GRAPH_MODE if opt.ms_mode == "graph" else context.PYNATIVE_MODE
     context.set_context(mode=ms_mode, device_target=opt.device_target, save_graphs=False)
     if opt.device_target == "Ascend":
-        device_id = int(os.getenv('DEVICE_ID', 0))
+        device_id = int(os.getenv('DEVICE_ID', "0"))
         context.set_context(device_id=device_id)
     # Distribute Train
     rank, rank_size, parallel_mode = 0, 1, ParallelMode.STAND_ALONE
