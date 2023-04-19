@@ -162,3 +162,12 @@ function get_default_config() {
         echo "Use default device number $DEVICE_ID because DEVICE_NUM argument is empty."
     fi
 }
+
+
+export RANK_TABLE_FILE
+export CONFIG_PATH
+export DATA_PATH
+export HYP_PATH
+export WEIGHTS
+export DEVICE_ID
+export DEVICE_NUM
