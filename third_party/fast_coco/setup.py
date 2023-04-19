@@ -14,11 +14,11 @@
 # =======================================================================================
 """Build fast_coco_eval library"""
 import sys
-from setuptools import setup
 try:
     from pybind11.setup_helpers import Pybind11Extension
 except ImportError:
     from setuptools import Extension as Pybind11Extension
+from setuptools import setup
 
 args = ["-O2"] if sys.platform == "win32" else ["-O3", "-std=c++14", "-g", "-Wno-reorder"]
 

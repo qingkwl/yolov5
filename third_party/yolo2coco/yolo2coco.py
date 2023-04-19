@@ -231,9 +231,8 @@ class YOLO2COCO:
         if not file_path.exists():
             if strict:
                 raise FileNotFoundError(f'[ERROR] The {file_path} is not exists!!!')
-            else:
-                print(f"[WARNING] The {file_path} is not exists.")
-                return False
+            print(f"[WARNING] The {file_path} is not exists.")
+            return False
         return True
 
     @staticmethod
@@ -273,6 +272,7 @@ class YOLO2COCO:
             'name': 'Apache License v2.0',
             'url': 'https://github.com/RapidAI/YOLO2COCO/LICENSE',
         }]
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('Datasets converter from YOLOV5 to COCO')
