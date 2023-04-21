@@ -165,13 +165,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
                     boxes *= scale_factor
             boxes[[0, 2]] += block_x
             boxes[[1, 3]] += block_y
-            for j, box in enumerate(boxes.T):
-                cls = int(classes[j])
-                color = colors(cls)  # colors[cls % len(colors)]
-                cls = names[cls] if names else cls
-                if labels or conf[j] > 0.25:  # 0.25 conf thresh
-                    label = f'{cls}' if labels else f'{cls} {conf[j]:.1f}'
-                    plot_one_box(box, mosaic, label=label, color=color, line_thickness=tl)
+            _plot_boxes(boxes, classes, conf, labels, mosaic, names, tl)
 
         # Draw image filename labels
         if paths is not None:
@@ -193,6 +187,16 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
         # cv2.imwrite(fname, cv2.cvtColor(mosaic, cv2.COLOR_BGR2RGB))  # cv2 save
         Image.fromarray(mosaic).save(fname)  # PIL save
     return mosaic
+
+
+def _plot_boxes(boxes, classes, conf, labels, mosaic, names, tl):
+    for j, box in enumerate(boxes.T):
+        cls = int(classes[j])
+        color = colors(cls)  # colors[cls % len(colors)]
+        cls = names[cls] if names else cls
+        if labels or conf[j] > 0.25:  # 0.25 conf thresh
+            label = f'{cls}' if labels else f'{cls} {conf[j]:.1f}'
+            plot_one_box(box, mosaic, label=label, color=color, line_thickness=tl)
 
 
 @TryExcept()  # known issue https://github.com/ultralytics/yolov5/issues/5395
