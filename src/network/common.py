@@ -340,31 +340,7 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
                 pass
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [nn.Conv2d, Conv, C3, SPPF, Bottleneck]:
-            c1, c2 = ch[f], args[0]
-            if c2 != no:  # if not output
-                c2 = make_divisible(c2 * gw, 8)
-
-            args = [c1, c2, *args[1:]]
-            if m in [C3]:
-                args.insert(2, n)  # number of repeats
-                n = 1
-        elif m is nn.BatchNorm2d:
-            args = [ch[f]]
-        elif m is Concat:
-            c2 = sum([ch[x] for x in f])
-        elif m in {Detect, Segment}:
-            args.append([ch[x] for x in f])
-            if isinstance(args[1], int):  # number of anchors
-                args[1] = [list(range(args[1] * 2))] * len(f)
-            if m is Segment:
-                args[3] = make_divisible(args[3] * gw, 8)
-        elif m is Contract:
-            c2 = ch[f] * args[0] ** 2
-        elif m is Expand:
-            c2 = ch[f] // args[0] ** 2
-        else:
-            c2 = ch[f]
+        args, c2, n = _parse_layer(args, c2, ch, f, gw, m, n, no)
 
         m_ = nn.SequentialCell([m(*args) for _ in range(n)]) if n > 1 else m(*args)
 
@@ -379,6 +355,35 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
             ch = []
         ch.append(c2)
     return nn.CellList(layers), sorted(save), layers_param
+
+
+def _parse_layer(args, c2, ch, f, gw, m, n, no):
+    if m in [nn.Conv2d, Conv, C3, SPPF, Bottleneck]:
+        c1, c2 = ch[f], args[0]
+        if c2 != no:  # if not output
+            c2 = make_divisible(c2 * gw, 8)
+
+        args = [c1, c2, *args[1:]]
+        if m in [C3]:
+            args.insert(2, n)  # number of repeats
+            n = 1
+    elif m is nn.BatchNorm2d:
+        args = [ch[f]]
+    elif m is Concat:
+        c2 = sum([ch[x] for x in f])
+    elif m in {Detect, Segment}:
+        args.append([ch[x] for x in f])
+        if isinstance(args[1], int):  # number of anchors
+            args[1] = [list(range(args[1] * 2))] * len(f)
+        if m is Segment:
+            args[3] = make_divisible(args[3] * gw, 8)
+    elif m is Contract:
+        c2 = ch[f] * args[0] ** 2
+    elif m is Expand:
+        c2 = ch[f] // args[0] ** 2
+    else:
+        c2 = ch[f]
+    return args, c2, n
 
 
 class EMA(nn.Cell):
