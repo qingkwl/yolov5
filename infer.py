@@ -21,11 +21,11 @@ from pathlib import Path
 import yaml
 import numpy as np
 from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
 
 from config.args import get_args_infer
 from deploy.infer_engine.mindx import MindXModel
 from src.dataset import create_dataloader
+from src.general import COCOEval as COCOeval
 from src.general import LOGGER, coco80_to_coco91_class, xyxy2xywh
 from src.metrics import non_max_suppression, scale_coords
 
@@ -67,6 +67,9 @@ def infer(opt):
 
     with open(opt.data) as f:
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
+    data_dict['train'] = os.path.join(data_dict['root'], data_dict['train'])
+    data_dict['val'] = os.path.join(data_dict['root'], data_dict['val'])
+    data_dict['test'] = os.path.join(data_dict['root'], data_dict['test'])
     rank_size = 1
     rank = 0
     val_dataloader, val_dataset, _ = create_dataloader(data_dict['val'], opt.img_size, opt.batch_size,
@@ -145,6 +148,7 @@ def infer(opt):
         coco_eval.accumulate()
         coco_eval.summarize()
         mean_ap, map50 = coco_eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
+        LOGGER.info(f"\nCOCO mAP:\n{coco_eval.stats_str}")
     except Exception as e:
         LOGGER.exception('pycocotools unable to run:')
         raise e

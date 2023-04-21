@@ -180,7 +180,7 @@ def get_args_test():
 
 
 def get_args_infer():
-    parser = Parser(prog='infer.py')
+    parser = Parser(prog='infer.py', conflict_handler="resolve")
     basic_parser = get_args_basic()
     infer_basic_parser = get_args_infer_basic()
     parser.copy_args(basic_parser)
