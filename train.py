@@ -177,9 +177,6 @@ class TrainManager:
         opt = self.opt
         hyp = self.hyp
         self._modelarts_sync(opt.data_url, opt.data_dir)
-        rank, rank_size = opt.rank, opt.rank_size
-        save_dir, epochs, batch_size, total_batch_size, weights, rank, freeze = \
-            opt.save_dir, opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.rank, opt.freeze
 
         self.data_cfg = self.get_data_cfg()
         num_cls = self.data_cfg['nc']
@@ -189,19 +186,19 @@ class TrainManager:
         os.makedirs(self.weight_dir, exist_ok=True)
         # Save run settings
         self.dump_cfg()
-        self._modelarts_sync(save_dir, opt.train_url)
+        self._modelarts_sync(opt.save_dir, opt.train_url)
 
         # Model
-        sync_bn = opt.sync_bn and context.get_context("device_target") == "Ascend" and rank_size > 1
+        sync_bn = opt.sync_bn and context.get_context("device_target") == "Ascend" and opt.rank_size > 1
         # Create Model
         model = Model(opt.cfg, ch=3, nc=num_cls, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt, hyp=hyp)
         model.to_float(ms.float16)
         ema = EMA(model) if opt.ema else None
 
-        pretrained = weights.endswith('.ckpt')
+        pretrained = opt.weights.endswith('.ckpt')
         resume_epoch = 0
         if pretrained:
-            resume_epoch = load_checkpoint_to_yolo(model, weights, opt.resume)
+            resume_epoch = load_checkpoint_to_yolo(model, opt.weights, opt.resume)
             ema.clone_from_model()
             LOGGER.warning("ema_weight not exist, default pretrain weight is currently used.")
 
@@ -224,22 +221,60 @@ class TrainManager:
 
         # Optimizer
         nbs = 64  # nominal batch size
-        accumulate = max(round(nbs / total_batch_size), 1)  # accumulate loss before optimizing
-        # accumulate = 1  # accumulate loss before optimizing
-
-        hyp['weight_decay'] *= total_batch_size * accumulate / nbs  # scale weight_decay
+        accumulate = max(round(nbs / opt.total_batch_size), 1)  # accumulate loss before optimizing
+        hyp['weight_decay'] *= opt.total_batch_size * accumulate / nbs  # scale weight_decay
         LOGGER.info(f"Scaled weight_decay = {hyp['weight_decay']}")
-
-        pg0, pg1, pg2 = get_group_param(model)
-        lr_pg0, lr_pg1, lr_pg2, momentum_pg, warmup_steps = get_lr(opt, hyp, per_epoch_size, resume_epoch)
-        group_params = [
-            {'params': pg0, 'lr': lr_pg0, 'weight_decay': hyp['weight_decay']},
-            {'params': pg1, 'lr': lr_pg1, 'weight_decay': 0.0},
-            {'params': pg2, 'lr': lr_pg2, 'weight_decay': 0.0}]
-        LOGGER.info(f"optimizer loss scale is {opt.ms_optim_loss_scale}")
-        optimizer = self.get_optimizer(group_params, momentum_pg)
+        optimizer = self.get_optimizer(model, per_epoch_size, resume_epoch)
 
         # Model parameters
+        model = self._configure_model_params(dataset, imgsz, model, nl)
+
+        # Build train process function
+        # amp
+        ms.amp.auto_mixed_precision(model, amp_level=opt.ms_amp_level)
+        compute_loss = ComputeLoss(model)  # init loss class
+        ms.amp.auto_mixed_precision(compute_loss, amp_level=opt.ms_amp_level)
+        loss_scaler = self.get_loss_scaler()
+        train_step = self.get_train_step(compute_loss, ema, model, optimizer)
+        model.set_train(True)
+        optimizer.set_train(True)
+        run_profiler_epoch = 2
+        ema_ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
+        ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
+
+        data_size = dataloader.get_dataset_size()
+        jit = opt.ms_mode.lower() == "graph"
+        sink_process = ms.data_sink(train_step, dataloader, steps=data_size * opt.epochs, sink_size=data_size, jit=jit)
+
+        summary_dir = os.path.join(opt.save_dir, opt.summary_dir, f"rank_{opt.rank}")
+        steps_per_epoch = data_size
+        with ms.SummaryRecord(summary_dir) if opt.summary else nullcontext() as summary_record:
+            for cur_epoch in range(resume_epoch, opt.epochs):
+                cur_epoch = cur_epoch + 1
+                start_train_time = time.time()
+                loss = sink_process()
+                end_train_time = time.time()
+                step_time = end_train_time - start_train_time
+                LOGGER.info(f"Epoch {opt.epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
+                            f"epoch time {step_time * 1000:.2f} ms, "
+                            f"step time {step_time * 1000 / data_size:.2f} ms, "
+                            f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
+                            f"lbox loss: {train_step.network.lbox_loss.asnumpy():.4f}, "
+                            f"lobj loss: {train_step.network.lobj_loss.asnumpy():.4f}, "
+                            f"lcls loss: {train_step.network.lcls_loss.asnumpy():.4f}.")
+                self.summarize_loss(cur_epoch, loss, steps_per_epoch, summary_record, train_step)
+                if opt.profiler and (cur_epoch == run_profiler_epoch):
+                    break
+                self.save_ckpt(ckpt_queue, cur_epoch, ema, ema_ckpt_queue, model)
+                self.run_eval(cur_epoch, ema, infer_model, model, steps_per_epoch, summary_record, val_dataloader,
+                              val_dataset)
+        return 0
+
+    def _configure_model_params(self, dataset, imgsz, model, nl):
+        hyp = self.hyp
+        opt = self.opt
+        num_cls = self.data_cfg['nc']
+        cls_names = self.data_cfg['names']
         hyp['box'] *= 3. / nl  # scale to layers
         hyp['cls'] *= num_cls / 80. * 3. / nl  # scale to classes and layers
         hyp['obj'] *= (imgsz / 640) ** 2 * 3. / nl  # scale to image size and layers
@@ -249,55 +284,7 @@ class TrainManager:
         model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
         model.class_weights = Tensor(labels_to_class_weights(dataset.labels, num_cls) * num_cls)  # attach class weights
         model.names = cls_names
-
-        # Build train process function
-        # amp
-        ms.amp.auto_mixed_precision(model, amp_level=opt.ms_amp_level)
-        compute_loss = ComputeLoss(model)  # init loss class
-        ms.amp.auto_mixed_precision(compute_loss, amp_level=opt.ms_amp_level)
-
-        loss_scaler = self.get_loss_scaler()
-
-        train_step = self.get_train_step(compute_loss, ema, model, optimizer)
-
-        model.set_train(True)
-        optimizer.set_train(True)
-        run_profiler_epoch = 2
-        ema_ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
-        ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
-
-        data_size = dataloader.get_dataset_size()
-        jit = opt.ms_mode.lower() == "graph"
-        sink_process = ms.data_sink(train_step, dataloader, steps=data_size * epochs, sink_size=data_size, jit=jit)
-
-        summary_dir = os.path.join(save_dir, opt.summary_dir, f"rank_{rank}")
-        steps_per_epoch = data_size
-        with ms.SummaryRecord(summary_dir) if opt.summary else nullcontext() as summary_record:
-            for cur_epoch in range(resume_epoch, epochs):
-                cur_epoch = cur_epoch + 1
-                start_train_time = time.time()
-                loss = sink_process()
-                end_train_time = time.time()
-                step_time = end_train_time - start_train_time
-                LOGGER.info(f"Epoch {epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
-                            f"epoch time {step_time * 1000:.2f} ms, "
-                            f"step time {step_time * 1000 / data_size:.2f} ms, "
-                            f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
-                            f"lbox loss: {train_step.network.lbox_loss.asnumpy():.4f}, "
-                            f"lobj loss: {train_step.network.lobj_loss.asnumpy():.4f}, "
-                            f"lcls loss: {train_step.network.lcls_loss.asnumpy():.4f}.")
-
-                self.summarize_loss(cur_epoch, loss, steps_per_epoch, summary_record, train_step)
-
-                if opt.profiler and (cur_epoch == run_profiler_epoch):
-                    break
-
-                self.save_ckpt(ckpt_queue, cur_epoch, ema, ema_ckpt_queue, model)
-
-                self.run_eval(cur_epoch, ema, infer_model, model, steps_per_epoch, summary_record, val_dataloader,
-                              val_dataset)
-
-        return 0
+        return model
 
     def dump_cfg(self):
         if self.opt.rank != 0:
@@ -451,9 +438,16 @@ class TrainManager:
             loss_scaler = None
         return loss_scaler
 
-    def get_optimizer(self, group_params, momentum_pg):
+    def get_optimizer(self, model, per_epoch_size, resume_epoch):
         opt = self.opt
         hyp = self.hyp
+        pg0, pg1, pg2 = get_group_param(model)
+        lr_pg0, lr_pg1, lr_pg2, momentum_pg, warmup_steps = get_lr(opt, hyp, per_epoch_size, resume_epoch)
+        group_params = [
+            {'params': pg0, 'lr': lr_pg0, 'weight_decay': hyp['weight_decay']},
+            {'params': pg1, 'lr': lr_pg1, 'weight_decay': 0.0},
+            {'params': pg2, 'lr': lr_pg2, 'weight_decay': 0.0}]
+        LOGGER.info(f"optimizer loss scale is {opt.ms_optim_loss_scale}")
         if opt.optimizer == "sgd":
             optimizer = nn.SGD(group_params, learning_rate=hyp['lr0'], momentum=hyp['momentum'], nesterov=True,
                                loss_scale=opt.ms_optim_loss_scale)
