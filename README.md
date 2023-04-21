@@ -30,7 +30,7 @@
 
 Published in April 2020 by [Ultralytics](https://ultralytics.com/), YOLOv5 achieved state-of-the-art performance on the COCO dataset for object detection.
 It is an important improvement of YoloV3, the implementation of a new architecture in the **Backbone** and
-the modifications in the **Neck** have improved the **mAP**(mean Average Precision) by **10%** and 
+the modifications in the **Neck** have improved the **mAP**(mean Average Precision) by **10%** and
 the number of **FPS**(Frame per Second) by **12%**.
 
 Repository of official implementation by `PyTorch`：https://github.com/ultralytics/yolov5
@@ -56,9 +56,9 @@ stride s = 2x2; Within the PANet and SPP, 1x1, 5x5, 9x9, 13x13 max poolings are 
 Dataset:
 
 - Raw data
-  - Train set: http://images.cocodataset.org/zips/train2017.zip
-  - Validation set: http://images.cocodataset.org/zips/val2017.zip
-  - Test set: http://images.cocodataset.org/zips/test2017.zip
+    - Train set: http://images.cocodataset.org/zips/train2017.zip
+    - Validation set: http://images.cocodataset.org/zips/val2017.zip
+    - Test set: http://images.cocodataset.org/zips/test2017.zip
 - YOLO format labels `coco2017labels`: https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels.zip
 - YOLO format segmentation labels `coco2017labels-segments`: https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels-segments.zip
 
@@ -222,7 +222,7 @@ yolov5
 │   │   ├── hyp.scratch-low.yaml
 │   │   └── hyp.scratch-med.yaml
 │   ├── data_conversion
-│   │   ├── coco.yaml                              // config of coco format dataset 
+│   │   ├── coco.yaml                              // config of coco format dataset
 │   │   ├── labelme.yaml                           // config of labelme format dataset
 │   │   └── yolo.yaml                              // config of yolo format dataset
 │   └── network                                    // configs of model architecture
@@ -242,7 +242,7 @@ yolov5
 ├── export.py
 ├── preprocess.py
 ├── scripts
-│   ├── common.sh                                  // common functions used in shell scripts 
+│   ├── common.sh                                  // common functions used in shell scripts
 │   ├── get_coco.sh
 │   ├── hccl_tools.py                              // generate rank table files for distributed training or evaluation
 │   ├── mpirun_test.sh                             // launch evaluation with OpenMPI
@@ -450,11 +450,11 @@ for doing inference on inference server. The following are steps:
 - The following are settings used for different models:
 
 ```bash
---data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size 
+--data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size
                                                  yolov5s.yaml                32
                                                  yolov5m.yaml                24
                                                  yolov5l.yaml                24
-                                                 yolov5x.yaml                    
+                                                 yolov5x.yaml
 ```
 
 - The result of `Epoch Time` is evaluated on 8 Ascend 910A with batch_size 32 per device.

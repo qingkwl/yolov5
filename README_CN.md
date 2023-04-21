@@ -53,9 +53,9 @@ CSPDarknet53 包含了 5 个 CSP 模块，CSP 模块中使用了 kernel size 为
 数据集:
 
 - 原始数据
-  - 训练集：http://images.cocodataset.org/zips/train2017.zip
-  - 验证集：http://images.cocodataset.org/zips/val2017.zip
-  - 测试集：http://images.cocodataset.org/zips/test2017.zip
+    - 训练集：http://images.cocodataset.org/zips/train2017.zip
+    - 验证集：http://images.cocodataset.org/zips/val2017.zip
+    - 测试集：http://images.cocodataset.org/zips/test2017.zip
 - YOLO 格式标注 `coco2017labels`：https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels.zip
 - YOLO 格式分割标注 `coco2017labels-segments`：https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels-segments.zip
 
