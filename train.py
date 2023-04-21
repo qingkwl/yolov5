@@ -20,6 +20,7 @@ import time
 from collections import deque
 from contextlib import nullcontext
 from pathlib import Path
+from test import TestManager
 
 import yaml
 import numpy as np
@@ -36,12 +37,11 @@ from config.args import get_args_train
 from src.boost import build_train_network
 from src.dataset import create_dataloader
 from src.general import (check_file, check_img_size, colorstr, increment_path,
-                         labels_to_class_weights, LOGGER, process_dataset_cfg)
+                         labels_to_class_weights, LOGGER, process_dataset_cfg, empty)
 from src.network.common import EMA
 from src.network.loss import ComputeLoss
 from src.network.yolo import Model
 from src.optimizer import YoloMomentum, get_group_param, get_lr
-from test import TestManager
 
 
 def set_seed(seed=2):
@@ -180,7 +180,6 @@ class TrainManager:
 
         self.data_cfg = self.get_data_cfg()
         num_cls = self.data_cfg['nc']
-        cls_names = self.data_cfg['names']
 
         # Directories
         os.makedirs(self.weight_dir, exist_ok=True)
@@ -208,7 +207,7 @@ class TrainManager:
         # Image sizes
         gs = max(int(model.stride.asnumpy().max()), 32)  # grid size (max stride)
         nl = model.model[-1].nl  # number of detection layers (used for scaling hyp['obj'])
-        imgsz, imgsz_test = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
+        imgsz, _ = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
         train_epoch_size = 1 if opt.optimizer == "thor" else opt.epochs - resume_epoch
         dataloader, dataset, per_epoch_size = self.get_dataset(model, train_epoch_size, mode="train")
         infer_model, val_dataloader, val_dataset = None, None, None
@@ -216,8 +215,8 @@ class TrainManager:
             infer_model = copy.deepcopy(model) if opt.ema else model
             val_dataloader, val_dataset, _ = self.get_dataset(model, epoch_size=1, mode="val")
         mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
-        assert mlc < num_cls, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (
-        mlc, num_cls, opt.data, num_cls - 1)
+        assert mlc < num_cls, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g'\
+                              % (mlc, num_cls, opt.data, num_cls - 1)
 
         # Optimizer
         nbs = 64  # nominal batch size
@@ -234,7 +233,7 @@ class TrainManager:
         ms.amp.auto_mixed_precision(model, amp_level=opt.ms_amp_level)
         compute_loss = ComputeLoss(model)  # init loss class
         ms.amp.auto_mixed_precision(compute_loss, amp_level=opt.ms_amp_level)
-        loss_scaler = self.get_loss_scaler()
+        # loss_scaler = self.get_loss_scaler()
         train_step = self.get_train_step(compute_loss, ema, model, optimizer)
         model.set_train(True)
         optimizer.set_train(True)
@@ -338,26 +337,27 @@ class TrainManager:
     def get_dataset(self, model, epoch_size, mode="train"):
         opt = self.opt
         gs = max(int(model.stride.asnumpy().max()), 32)  # grid size (max stride)
-        imgsz, imgsz_test = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
+        imgsz, _ = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
         if mode == "train":
             train_path = self.data_cfg["train"]
             dataloader, dataset, per_epoch_size = create_dataloader(train_path, imgsz, opt.batch_size, gs, opt,
                                                                     epoch_size=epoch_size,
                                                                     hyp=self.hyp, augment=True, cache=opt.cache_images,
-                                                                    rect=opt.rect, rank_size=opt.rank_size, rank=opt.rank,
-                                                                    num_parallel_workers=12,
+                                                                    rect=opt.rect, rank_size=opt.rank_size,
+                                                                    rank=opt.rank, num_parallel_workers=12,
                                                                     image_weights=opt.image_weights, quad=opt.quad,
                                                                     prefix=colorstr('train: '), model_train=True)
             return dataloader, dataset, per_epoch_size
         # val
         rect = False
         test_path = self.data_cfg["val"]
+        num_parallel_workers = 4 if opt.rank_size > 1 else 8,
         val_dataloader, val_dataset, val_per_epoch_size = create_dataloader(test_path, imgsz, opt.batch_size, gs,
                                                                             opt, epoch_size=epoch_size, pad=0.5,
                                                                             rect=rect, rank=opt.rank,
                                                                             rank_size=opt.rank_size,
-                                                                            num_parallel_workers=4 if opt.rank_size > 1 else 8,
+                                                                            num_parallel_workers=num_parallel_workers,
                                                                             shuffle=False,
                                                                             drop_remainder=False,
                                                                             prefix=colorstr('val: '))
@@ -442,7 +442,7 @@ class TrainManager:
         opt = self.opt
         hyp = self.hyp
         pg0, pg1, pg2 = get_group_param(model)
-        lr_pg0, lr_pg1, lr_pg2, momentum_pg, warmup_steps = get_lr(opt, hyp, per_epoch_size, resume_epoch)
+        lr_pg0, lr_pg1, lr_pg2, momentum_pg, _ = get_lr(opt, hyp, per_epoch_size, resume_epoch)
         group_params = [
             {'params': pg0, 'lr': lr_pg0, 'weight_decay': hyp['weight_decay']},
             {'params': pg1, 'lr': lr_pg1, 'weight_decay': 0.0},
@@ -485,7 +485,7 @@ def main():
     opt.save_json |= opt.data.endswith('coco.yaml')
     # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
-    assert len(opt.cfg) > 0 or len(opt.weights) > 0, 'either --cfg or --weights must be specified'
+    assert not empty(opt.cfg) or not empty(opt.weights), 'either --cfg or --weights must be specified'
     opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
     opt.name = 'evolve' if opt.evolve else opt.name
     opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run

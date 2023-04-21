@@ -33,7 +33,7 @@ from pycocotools.coco import COCO
 from config.args import get_args_test
 from src.coco_visual import CocoVisualUtil
 from src.dataset import create_dataloader
-from src.general import LOGGER, AllReduce
+from src.general import LOGGER, AllReduce, empty
 from src.general import COCOEval as COCOeval
 from src.general import (Synchronize, SynchronizeManager, box_iou, check_file,
                          check_img_size, coco80_to_coco91_class, colorstr,
@@ -328,7 +328,7 @@ class TestManager:
         for si, pred in enumerate(out):
             labels = targets[targets[:, 0] == si, 1:]
             nl, npr, shape = labels.shape[0], pred.shape[0], shapes[si][0]  # number of labels, predictions
-            if isinstance(paths[si], np.ndarray) or isinstance(paths[si], np.bytes_):
+            if isinstance(paths[si], (np.bytes_, np.ndarray)):
                 path = Path(str(codecs.decode(paths[si].tostring()).strip(b'\x00'.decode())))
             else:
                 path = Path(paths[si])
@@ -452,7 +452,7 @@ class TestManager:
         seen = metric_stats.seen
         names = dataset_cfg['names']
         nc = dataset_cfg['nc']
-        if len(pred_stats) > 0 and pred_stats[0].any():
+        if not empty(pred_stats) and pred_stats[0].any():
             metric_stats.compute_ap_per_class(plot=opt.plots, save_dir=self.save_dir, names=self.dataset_cfg['names'])
         nt = np.bincount(pred_stats[3].astype(int), minlength=nc)  # number of targets per class
 
@@ -463,7 +463,7 @@ class TestManager:
         LOGGER.info(pf.format('all', seen, nt.sum(), *metric_stats.get_mean_stats()))
 
         # Print results per class
-        if (opt.verbose or (nc < 50 and not self.training)) and nc > 1 and len(pred_stats) > 0:
+        if (opt.verbose or (nc < 50 and not self.training)) and nc > 1 and not empty(pred_stats):
             for i, c in enumerate(metric_stats.ap_cls):
                 # Class     Images  Instances          P          R      mAP50   mAP50-95:
                 LOGGER.info(pf.format(names[c], seen, nt[c], *metric_stats.get_ap_per_class(i)))
@@ -590,7 +590,7 @@ class TestManager:
 
         coco_result = COCOResult()
         # Save JSON
-        if opt.save_json and len(metric_stats.pred_json) > 0:
+        if opt.save_json and not empty(metric_stats.pred_json):
             coco_result = self._save_eval_result(metric_stats)
 
         # Return results

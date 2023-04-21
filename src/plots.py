@@ -27,7 +27,7 @@ import pandas as pd
 import seaborn as sn
 from PIL import Image, ImageDraw
 
-from src.general import xywh2xyxy, xyxy2xywh, LOGGER
+from src.general import xywh2xyxy, xyxy2xywh, LOGGER, empty
 from src.utils import TryExcept, threaded
 
 
@@ -150,7 +150,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
             img = cv2.resize(img, (w, h))
         mosaic[block_y:block_y + h, block_x:block_x + w, :] = img
 
-        if len(targets) > 0:
+        if not empty(targets):
             image_targets = targets[targets[:, 0] == i]
             boxes = xywh2xyxy(image_targets[:, 2:6]).T
             classes = image_targets[:, 1].astype('int')
@@ -169,7 +169,7 @@ def plot_images(images, targets, paths=None, fname='images.jpg', names=None, max
 
         # Draw image filename labels
         if paths is not None:
-            if isinstance(paths[i], np.ndarray) or isinstance(paths[i], np.bytes_):
+            if isinstance(paths[i], (np.bytes_, np.ndarray)):
                 path = Path(str(codecs.decode(paths[i].tostring()).strip(b'\x00'.decode())))
             else:
                 path = Path(paths[i])
@@ -220,7 +220,7 @@ def plot_labels(labels, names=(), save_dir=Path('')):
         for i in range(nc):
             y[2].patches[i].set_color([x / 255 for x in colors(i)])  # known issue #3195
     ax[0].set_ylabel('instances')
-    if 0 < len(names) < 30:
+    if not empty(names) and len(names) < 30:
         ax[0].set_xticks(range(len(names)))
         ax[0].set_xticklabels(list(names.values()), rotation=90, fontsize=10)
     else:
@@ -252,7 +252,7 @@ def plot_results(file='path/to/results.csv', directory=''):
     fig, ax = plt.subplots(2, 5, figsize=(12, 6), tight_layout=True)
     ax = ax.ravel()
     files = list(save_dir.glob('results*.csv'))
-    assert len(files), f'No results.csv files found in {save_dir.resolve()}, nothing to plot.'
+    assert not empty(files), f'No results.csv files found in {save_dir.resolve()}, nothing to plot.'
     for f in files:
         try:
             data = pd.read_csv(f)

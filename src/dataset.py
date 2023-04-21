@@ -34,7 +34,7 @@ from tqdm import tqdm
 from src.augmentations import (Albumentations, augment_hsv, copy_paste,
                                letterbox, load_image, load_samples, mixup,
                                pastein, random_perspective)
-from src.general import segments2boxes, xyn2xy, xywhn2xyxy, xyxy2xywhn
+from src.general import segments2boxes, xyn2xy, xywhn2xyxy, xyxy2xywhn, empty
 
 # Parameters
 HELP_URL = 'See https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
@@ -436,7 +436,7 @@ class LoadImagesAndLabels:  # for training/testing
                     sample_labels += sample_labels_
                     sample_images += sample_images_
                     sample_masks += sample_masks_
-                    if len(sample_labels) == 0:
+                    if empty(sample_labels):
                         break
                 labels = pastein(img, labels, sample_labels, sample_images, sample_masks)
 

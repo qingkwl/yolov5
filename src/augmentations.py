@@ -20,7 +20,7 @@ import cv2
 import numpy as np
 
 from src.general import (bbox_ioa, check_version, colorstr, resample_segments,
-                         segment2box, xyn2xy, xywhn2xyxy)
+                         segment2box, xyn2xy, xywhn2xyxy, LOGGER, empty)
 
 
 class Albumentations:
@@ -42,13 +42,12 @@ class Albumentations:
                 A.ImageCompression(quality_lower=75, p=0.0)]  # transforms
             self.transform = A.Compose(T, bbox_params=A.BboxParams(format='yolo', label_fields=['class_labels']))
 
-            print(prefix + ', '.join(f'{x}'.replace('always_apply=False, ', '') for x in T if x.p), flush=True)
-            print("[INFO] albumentations load success", flush=True)
+            LOGGER.info(prefix + ', '.join(f'{x}'.replace('always_apply=False, ', '') for x in T if x.p))
+            LOGGER.info("albumentations load success")
         except ImportError:  # package not installed, skip
-            print("[WARNING] package not installed, albumentations load failed", flush=True)
-        except Exception as e:
-            print(f'{prefix}{e}', flush=True)
-            print("[WARNING] albumentations load failed", flush=True)
+            LOGGER.exception("package not installed, albumentations load failed")
+        except Exception:
+            LOGGER.exception("albumentations load failed")
 
     def __call__(self, im, labels, p=1.0):
         if self.transform and random.random() < p:
@@ -350,12 +349,12 @@ def pastein(image, labels, sample_labels, sample_images, sample_masks):
         ymax = min(h, ymin + mask_h)
 
         box = np.array([xmin, ymin, xmax, ymax], dtype=np.float32)
-        if len(labels) > 0:
+        if not empty(labels):
             ioa = bbox_ioa(box, labels[:, 1:5])  # intersection over area
         else:
             ioa = np.zeros(1)
 
-        if (ioa < 0.30).all() and len(sample_labels) > 0 and (xmax > xmin + 20)\
+        if (ioa < 0.30).all() and (not empty(sample_labels)) and (xmax > xmin + 20)\
                 and (ymax > ymin + 20):  # allow 30% obscuration of existing labels
             sel_ind = random.randint(0, len(sample_labels) - 1)
             # print(len(sample_labels))
@@ -377,7 +376,7 @@ def pastein(image, labels, sample_labels, sample_images, sample_masks):
                 if m_ind.astype(np.int32).sum() > 60:
                     temp_crop[m_ind] = r_image[m_ind]
                     box = np.array([xmin, ymin, xmin + r_w, ymin + r_h], dtype=np.float32)
-                    if len(labels) > 0:
+                    if not empty(labels):
                         labels = np.concatenate((labels, [[sample_labels[sel_ind], *box]]), 0)
                     else:
                         labels = np.array([[sample_labels[sel_ind], *box]])

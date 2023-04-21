@@ -13,6 +13,8 @@
 # limitations under the License.
 # ============================================================================
 
+from __future__ import annotations
+
 import glob
 import math
 import os
@@ -20,9 +22,9 @@ import re
 import threading
 import time
 from pathlib import Path
+import pkg_resources as pkg
 
 import numpy as np
-import pkg_resources as pkg
 import mindspore as ms
 import mindspore.nn as nn
 from mindspore import ops
@@ -59,7 +61,7 @@ def check_file(file):
     if Path(file).is_file() or file == '':
         return file
     files = glob.glob('./**/' + file, recursive=True)  # find file
-    assert len(files), f'File Not Found: {file}'  # assert file was found
+    assert not empty(files), f'File Not Found: {file}'  # assert file was found
     assert len(files) == 1, f"Multiple files match '{file}', specify exact path: {files}"  # assert unique
     return files[0]  # return file
 
@@ -331,6 +333,12 @@ def process_dataset_cfg(dataset_cfg):
     return dataset_cfg
 
 
+def empty(seq: list | tuple | np.ndarray | str):
+    if isinstance(seq, (list, tuple, np.ndarray, str)):
+        return len(seq) == 0
+    raise TypeError(f"Unsupported type {type(seq)} of input `seq`")
+
+
 class Callbacks:
     """"
     Handles all registered callbacks for YOLOv5 Hooks
@@ -456,7 +464,7 @@ class COCOEval(COCOeval):
                 if categoryId is not None:
                     category_index = [i for i, i_catId in enumerate(p.catIds) if i_catId == categoryId]
                     s = s[:, category_index, :]
-            if len(s[s > -1]) == 0:
+            if empty(s[s > -1]):
                 mean_s = -1
             else:
                 mean_s = np.mean(s[s > -1])

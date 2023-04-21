@@ -62,6 +62,7 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 from src.data.base import PATH, BaseArgs, BaseManager, empty, exists, valid_path, COCOArgs, YOLOArgs
+from src.general import empty
 
 
 class YOLOManager(BaseManager):
@@ -169,7 +170,7 @@ class YOLOManager(BaseManager):
                     self.logger.warning(f"Label [{label_path}] not found.")
                     continue
                 _ann = self._get_annotations(label_path, img_info)
-                if len(_ann) > 0:
+                if not empty(_ann):
                     _annotations.extend(_ann)
         # TODO: Initialize dataset information for converting to COCO
         json_data = {

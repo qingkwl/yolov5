@@ -206,8 +206,7 @@ def bbox_iou_2(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, ep
                 alpha = v / (v - iou + (1 + eps))
                 alpha = ops.stop_gradient(alpha)
                 return iou - (rho2 / c2 + v * alpha)  # CIoU
-            else:
-                return iou  # common IoU
+            return iou  # common IoU
         else:  # GIoU https://arxiv.org/pdf/1902.09630.pdf
             c_area = cw * ch + eps  # convex area
             return iou - (c_area - union) / c_area  # GIoU
@@ -248,10 +247,10 @@ class FocalLoss(nn.Cell):
             if mask is not None:
                 return (loss.sum() / mask.astype(loss.dtype).sum().clip(1, None)).astype(ori_dtype)
             return loss.mean().astype(ori_dtype)
-        elif self.reduction == 'sum':
+        if self.reduction == 'sum':
             return loss.sum().astype(ori_dtype)
-        else:  # 'none'
-            return loss.astype(ori_dtype)
+        # 'none'
+        return loss.astype(ori_dtype)
 
 
 class BCEWithLogitsLoss(nn.Cell):

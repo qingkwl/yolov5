@@ -20,7 +20,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from src.general import LOGGER, box_iou, xywh2xyxy
+from src.general import LOGGER, box_iou, xywh2xyxy, empty
 
 
 class ConfusionMatrix:
@@ -167,7 +167,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
     xc = prediction[..., 4] > conf_thres  # candidates
 
     # Settings
-    min_wh, max_wh = 2, 7680  # (pixels) minimum and maximum box width and height
+    _, max_wh = 2, 7680  # (pixels) minimum and maximum box width and height
     max_det = 300  # maximum number of detections per image
     max_nms = 30000  # maximum number of boxes into torchvision.ops.nms()
     time_limit = time_limit  # seconds to quit after
@@ -183,7 +183,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         x = x[xc[xi]]  # confidence
 
         # Cat apriori labels if autolabelling
-        if len(labels) > 0 and len(labels[xi]) > 0:
+        if not empty(labels) and not empty(labels[xi]):
             l = labels[xi]
             v = np.zeros((len(l), nc + 5))
             v[:, :4] = l[:, 1:5]  # box
@@ -391,7 +391,7 @@ def plot_pr_curve(px, py, ap, save_dir='pr_curve.png', names=()):
     fig, ax = plt.subplots(1, 1, figsize=(9, 6), tight_layout=True)
     py = np.stack(py, axis=1)
 
-    if 0 < len(names) < 21:  # display per-class legend if < 21 classes
+    if not empty(names) and len(names) < 21:    # display per-class legend if < 21 classes
         for i, y in enumerate(py.T):
             ax.plot(px, y, linewidth=1, label=f'{names[i]} {ap[i, 0]:.3f}')  # plot(recall, precision)
     else:
@@ -410,7 +410,7 @@ def plot_mc_curve(px, py, save_dir='mc_curve.png', names=(), xlabel='Confidence'
     # Metric-confidence curve
     fig, ax = plt.subplots(1, 1, figsize=(9, 6), tight_layout=True)
 
-    if 0 < len(names) < 21:  # display per-class legend if < 21 classes
+    if not empty(names) and len(names) < 21:    # display per-class legend if < 21 classes
         for i, y in enumerate(py):
             ax.plot(px, y, linewidth=1, label=f'{names[i]}')  # plot(confidence, metric)
     else:

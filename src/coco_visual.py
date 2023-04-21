@@ -22,10 +22,10 @@ import warnings
 from typing import List
 
 import cv2
-import matplotlib.pyplot as plt
 import mmcv
 import numpy as np
 import seaborn as sns
+import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval

@@ -135,7 +135,7 @@ class COCOManager(BaseManager):
                     # Write
                     with open((label_folder / file_name).with_suffix('.txt'), 'a') as file:
                         for i in range(len(bboxes)):
-                            line = *(segments[i] if use_segments else bboxes[i]),  # cls, box or segments
+                            line = (*(segments[i] if use_segments else bboxes[i]),)  # cls, box or segments
                             file.write(('%g ' * len(line)).rstrip() % line + '\n')
                     dst_img_path = image_folder / new_img_name
                     if copy_images:

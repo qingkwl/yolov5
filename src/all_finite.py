@@ -73,3 +73,5 @@ if compare_version(ms.__version__) < 0:
         return ops.stack(outputs).all()
 else:
     from mindspore.amp import all_finite
+
+all_finite_device = all_finite
