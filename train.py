@@ -355,7 +355,7 @@ class TrainManager:
 
         if mode == "train":
             train_path = self.data_cfg["train"]
-            dataloader, dataset, per_epoch_size = create_dataloader(train_path, imgsz, opt.batch_size, model, opt,
+            dataloader, dataset, per_epoch_size = create_dataloader(train_path, imgsz, opt.batch_size, gs, opt,
                                                                     epoch_size=epoch_size,
                                                                     hyp=self.hyp, augment=True, cache=opt.cache_images,
                                                                     rect=opt.rect, rank_size=opt.rank_size, rank=opt.rank,
@@ -366,7 +366,7 @@ class TrainManager:
         # val
         rect = False
         test_path = self.data_cfg["val"]
-        val_dataloader, val_dataset, val_per_epoch_size = create_dataloader(test_path, imgsz, opt.batch_size, model,
+        val_dataloader, val_dataset, val_per_epoch_size = create_dataloader(test_path, imgsz, opt.batch_size, gs,
                                                                             opt, epoch_size=epoch_size, pad=0.5,
                                                                             rect=rect, rank=opt.rank,
                                                                             rank_size=opt.rank_size,

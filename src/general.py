@@ -323,7 +323,7 @@ def process_dataset_cfg(dataset_cfg):
         root = Path(root)
         sub = Path(sub)
         joined_path = sub
-        if not sub.is_relative_to(root):
+        if not sub.parent.samefile(root):
             joined_path = root / sub
         return str(joined_path.resolve())
 
