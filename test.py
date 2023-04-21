@@ -613,14 +613,15 @@ class TestManager:
         with SynchronizeManager(opt.rank, opt.rank_size, opt.is_distributed, self.project_dir):
             result = COCOResult()
             if opt.rank == 0:
-                path, merged_results = self._merge_pred_json(prefix=ckpt_name)
+                pred_json_path, pred_json = pred_json_path, metric_stats.pred_json
+                if opt.is_distributed:
+                    pred_json_path, pred_json = self._merge_pred_json(prefix=ckpt_name)
                 if opt.result_view or opt.recommend_threshold:
                     try:
-                        self.visualize_coco(anno_json, path)
+                        self.visualize_coco(anno_json, pred_json_path)
                     except Exception:
                         LOGGER.exception("Failed when visualize evaluation result.")
                 try:
-                    pred_json = merged_results if opt.is_distributed else metric_stats.pred_json
                     result = self.eval_coco(anno_json, pred_json)
                     LOGGER.info(f"\nCOCO mAP:\n{result.stats_str}")
                 except Exception:

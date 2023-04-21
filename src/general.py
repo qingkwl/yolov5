@@ -313,6 +313,26 @@ def methods(instance):
     return [f for f in dir(instance) if callable(getattr(instance, f)) and not f.startswith('__')]
 
 
+def process_dataset_cfg(dataset_cfg):
+    if not isinstance(dataset_cfg, dict):
+        return dataset_cfg
+
+    def _join(root, sub):
+        if not isinstance(root, str) or not isinstance(sub, str):
+            return False
+        root = Path(root)
+        sub = Path(sub)
+        joined_path = sub
+        if not sub.is_relative_to(root):
+            joined_path = root / sub
+        return str(joined_path.resolve())
+
+    dataset_cfg['train'] = _join(dataset_cfg['root'], dataset_cfg['train'])
+    dataset_cfg['val'] = _join(dataset_cfg['root'], dataset_cfg['val'])
+    dataset_cfg['test'] = _join(dataset_cfg['root'], dataset_cfg['test'])
+    return dataset_cfg
+
+
 class Callbacks:
     """"
     Handles all registered callbacks for YOLOv5 Hooks
