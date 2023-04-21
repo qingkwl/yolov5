@@ -427,7 +427,7 @@ for doing inference on inference server. The following are steps:
 1. Export model with `AIR` format：
   `python export.py --weights /path/to/model.ckpt --file_format AIR`;
 2. Transform model with `AIR` format to `om` format by `atc` tool：
-  `/usr/local/Ascend/latest/atc/bin/atc --model=yolov5s.om --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
+  `/usr/local/Ascend/latest/atc/bin/atc --model=yolov5s.air --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
   the `--soc_version` option can be got by `npu-smi info` command. Supported option choices are `Ascend310`，`Ascend310P3`;
 3. Infer by executing `infer.py` script：`python infer.py --batch_size 1 --om yolov5s.om`
 

@@ -415,7 +415,7 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 1. 导出 `AIR` 格式的模型：
   `python export.py --weights /path/to/model.ckpt --file_format AIR`；
 2. 使用 `atc` 工具将 `AIR` 格式模型转换为 `om` 格式：
-  `/usr/local/Ascend/latest/atc/bin/atc --model=yolov5s.om --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
+  `/usr/local/Ascend/latest/atc/bin/atc --model=yolov5s.air --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
   其中 `--soc_version` 可通过 `npu-smi info` 指令查看，支持 `Ascend310`，`Ascend310P3` 等；
 3. 通过 `infer.py` 脚本执行推理：`python infer.py --batch_size 1 --om yolov5s.om`
 
