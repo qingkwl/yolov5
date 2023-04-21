@@ -24,18 +24,18 @@ class MindXModel(ModelBase):
         self.device_id = device_id
 
         self._init_model()
+        from mindx.sdk import base, Tensor
+        self.base = base
+        self.tensor = Tensor
 
     def _init_model(self):
-        global base, Tensor
-        from mindx.sdk import base, Tensor, visionDataFormat
-
-        base.mx_init()
-        self.model = base.model(self.model_path, self.device_id)
+        self.base.mx_init()
+        self.model = self.base.model(self.model_path, self.device_id)
         if not self.model:
             raise ValueError(f"The model file {self.model_path} load failed.")
 
     def infer(self, x):
-        inputs = Tensor(x)
+        inputs = self.tensor(x)
         outputs = self.model.infer(inputs)
         list([output.to_host() for output in outputs])
         outputs = [np.array(output) for output in outputs]

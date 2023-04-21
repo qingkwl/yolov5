@@ -26,7 +26,7 @@ from config.args import get_args_infer
 from deploy.infer_engine.mindx import MindXModel
 from src.dataset import create_dataloader
 from src.general import COCOEval as COCOeval
-from src.general import LOGGER, coco80_to_coco91_class, xyxy2xywh
+from src.general import LOGGER, coco80_to_coco91_class, xyxy2xywh, empty
 from src.metrics import non_max_suppression, scale_coords
 
 # python infer.py --
@@ -113,7 +113,7 @@ def infer(opt):
             shape = shapes[si][0]
             path = Path(str(paths[si]))
             sample_num += 1
-            if len(pred) == 0:
+            if empty(pred):
                 continue
 
             # Predictions
