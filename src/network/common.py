@@ -15,6 +15,7 @@
 
 import copy
 import math
+import sys
 
 import numpy as np
 import mindspore as ms
@@ -22,7 +23,7 @@ import mindspore.numpy as mnp
 from mindspore import Tensor, nn, ops
 from mindspore.common.initializer import HeUniform
 
-from src.general import make_divisible
+from src.general import make_divisible, empty, LOGGER
 
 _SYNC_BN = False
 
@@ -325,16 +326,16 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
     global _SYNC_BN
     _SYNC_BN = sync_bn
     print('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
-    anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
-    na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
-    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
+    # anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
+    # na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
+    # no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
 
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     layers_param = []
     # for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
     for i, layer_cfg in enumerate(d['backbone'] + d['head']):  # from, number, module, args
         # args, c2, m, n = _parse_layer(args, c2, ch, f, gd, gw, m, n, no)
-        c2, f, n, m, args = _parse_layer(ch, d, no, layer_cfg)
+        c2, f, n, m, args = _parse_layer(ch, d, layer_cfg)
         m_ = nn.SequentialCell([m(*args) for _ in range(n)]) if n > 1 else m(*args)
         t = str(m)  # module type
         num_params = sum([x.size for x in m_.get_parameters()])  # number params
@@ -349,16 +350,18 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
     return nn.CellList(layers), sorted(save), layers_param
 
 
-def _parse_layer(ch, d, no, layer_cfg):
+def _parse_layer(ch, d, layer_cfg):
     c2 = ch[-1]     # ch out
     f, n, m, args = layer_cfg
-    gd, gw = d['depth_multiple'], d['width_multiple']
-    m = eval(m) if isinstance(m, str) else m  # eval strings
+    anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
+    na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
+    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
+    # m = eval(m) if isinstance(m, str) else m  # eval strings
+    m = _get_layer_module(m) if isinstance(m, str) else m
     for j, a in enumerate(args):
-        try:
-            args[j] = eval(a) if isinstance(a, str) else a  # eval strings
-        except:
-            pass
+        args[j] = eval(a) if isinstance(a, str) else a  # eval strings
+        if isinstance(a, str):
+            args[j] = int(a) if a.isnumeric() else d[a]
     n = max(round(n * gd), 1) if n > 1 else n  # depth gain
     if m in [nn.Conv2d, Conv, C3, SPPF, Bottleneck]:
         c1, c2 = ch[f], args[0]
@@ -387,6 +390,33 @@ def _parse_layer(ch, d, no, layer_cfg):
         c2 = ch[f]
     # return args, c2, m, n
     return c2, f, n, m, args
+
+
+def _get_layer_module(m: str):
+    """
+    Args:
+        m: str, class name defined in this file, or absolute path of class in other package
+
+        Note:
+            if m is the absolute path, the parent module must be imported in this file.
+            e.g. nn.Conv2d, ms.nn.Conv2d
+            nn or ms.nn must be imported firstly
+    """
+    if not isinstance(m, str):
+        raise TypeError("Only support input of str.")
+    path = m.split('.')
+    parent = ".".join(path[:-1])
+    cls = path[-1]
+    if empty(parent):
+        module = getattr(sys.modules[__name__], m, None)  # Get module from this file
+    else:
+        parent_module = getattr(sys.modules[__name__], parent, None)  # Get module from this file
+        if parent_module is None:
+            raise ImportError(f"No module named {parent}")
+        module = getattr(parent_module, cls, None)
+    if module is None:
+        raise ImportError(f"No module named {cls} in {parent}")
+    return module
 
 
 class EMA(nn.Cell):

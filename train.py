@@ -331,7 +331,7 @@ class TrainManager:
                 append_dict = {"updates": ema.updates, "epoch": cur_epoch}
                 save_ema(ema, ema_ckpt_path, append_dict)
                 ema_ckpt_queue.append(ema_ckpt_path)
-                LOGGER.info("Save ckpt path: ", ema_ckpt_path)
+                LOGGER.info(f"Save ckpt path: {ema_ckpt_path}")
                 self._modelarts_sync(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
 
     def get_dataset(self, model, epoch_size, mode="train"):
