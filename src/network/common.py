@@ -331,48 +331,16 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
 
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     layers_param = []
-    for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
-        m = eval(m) if isinstance(m, str) else m  # eval strings
-        for j, a in enumerate(args):
-            try:
-                args[j] = eval(a) if isinstance(a, str) else a  # eval strings
-            except:
-                pass
-
-        n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [nn.Conv2d, Conv, C3, SPPF, Bottleneck]:
-            c1, c2 = ch[f], args[0]
-            if c2 != no:  # if not output
-                c2 = make_divisible(c2 * gw, 8)
-
-            args = [c1, c2, *args[1:]]
-            if m in [C3]:
-                args.insert(2, n)  # number of repeats
-                n = 1
-        elif m is nn.BatchNorm2d:
-            args = [ch[f]]
-        elif m is Concat:
-            c2 = sum([ch[x] for x in f])
-        elif m in {Detect, Segment}:
-            args.append([ch[x] for x in f])
-            if isinstance(args[1], int):  # number of anchors
-                args[1] = [list(range(args[1] * 2))] * len(f)
-            if m is Segment:
-                args[3] = make_divisible(args[3] * gw, 8)
-        elif m is Contract:
-            c2 = ch[f] * args[0] ** 2
-        elif m is Expand:
-            c2 = ch[f] // args[0] ** 2
-        else:
-            c2 = ch[f]
-
+    # for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
+    for i, layer_cfg in enumerate(d['backbone'] + d['head']):  # from, number, module, args
+        # args, c2, m, n = _parse_layer(args, c2, ch, f, gd, gw, m, n, no)
+        c2, f, n, m, args = _parse_layer(ch, d, no, layer_cfg)
         m_ = nn.SequentialCell([m(*args) for _ in range(n)]) if n > 1 else m(*args)
-
         t = str(m)  # module type
-        num_param = sum([x.size for x in m_.get_parameters()])  # number params
-        m_.i, m_.f, m_.type, m_.np = i, f, t, num_param  # attach index, 'from' index, type, number params
-        layers_param.append((i, f, t, np))
-        print('%3s%18s%3s%10.0f  %-40s%-30s' % (i, f, n, num_param, t, args))  # print
+        num_params = sum([x.size for x in m_.get_parameters()])  # number params
+        m_.i, m_.f, m_.type, m_.np = i, f, t, num_params  # attach index, 'from' index, type, number params
+        layers_param.append((i, f, t, num_params))
+        print('%3s%18s%3s%10.0f  %-40s%-30s' % (i, f, n, num_params, t, args))  # print
         save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
         layers.append(m_)
         if i == 0:
@@ -381,33 +349,44 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
     return nn.CellList(layers), sorted(save), layers_param
 
 
-# def _parse_layer(args, c2, ch, f, gw, m, n, no):
-#     if m in [nn.Conv2d, Conv, C3, SPPF, Bottleneck]:
-#         c1, c2 = ch[f], args[0]
-#         if c2 != no:  # if not output
-#             c2 = make_divisible(c2 * gw, 8)
-#
-#         args = [c1, c2, *args[1:]]
-#         if m in [C3]:
-#             args.insert(2, n)  # number of repeats
-#             n = 1
-#     elif m is nn.BatchNorm2d:
-#         args = [ch[f]]
-#     elif m is Concat:
-#         c2 = sum([ch[x] for x in f])
-#     elif m in {Detect, Segment}:
-#         args.append([ch[x] for x in f])
-#         if isinstance(args[1], int):  # number of anchors
-#             args[1] = [list(range(args[1] * 2))] * len(f)
-#         if m is Segment:
-#             args[3] = make_divisible(args[3] * gw, 8)
-#     elif m is Contract:
-#         c2 = ch[f] * args[0] ** 2
-#     elif m is Expand:
-#         c2 = ch[f] // args[0] ** 2
-#     else:
-#         c2 = ch[f]
-#     return args, c2, n
+def _parse_layer(ch, d, no, layer_cfg):
+    c2 = ch[-1]     # ch out
+    f, n, m, args = layer_cfg
+    gd, gw = d['depth_multiple'], d['width_multiple']
+    m = eval(m) if isinstance(m, str) else m  # eval strings
+    for j, a in enumerate(args):
+        try:
+            args[j] = eval(a) if isinstance(a, str) else a  # eval strings
+        except:
+            pass
+    n = max(round(n * gd), 1) if n > 1 else n  # depth gain
+    if m in [nn.Conv2d, Conv, C3, SPPF, Bottleneck]:
+        c1, c2 = ch[f], args[0]
+        if c2 != no:  # if not output
+            c2 = make_divisible(c2 * gw, 8)
+
+        args = [c1, c2, *args[1:]]
+        if m in [C3]:
+            args.insert(2, n)  # number of repeats
+            n = 1
+    elif m is nn.BatchNorm2d:
+        args = [ch[f]]
+    elif m is Concat:
+        c2 = sum([ch[x] for x in f])
+    elif m in {Detect, Segment}:
+        args.append([ch[x] for x in f])
+        if isinstance(args[1], int):  # number of anchors
+            args[1] = [list(range(args[1] * 2))] * len(f)
+        if m is Segment:
+            args[3] = make_divisible(args[3] * gw, 8)
+    elif m is Contract:
+        c2 = ch[f] * args[0] ** 2
+    elif m is Expand:
+        c2 = ch[f] // args[0] ** 2
+    else:
+        c2 = ch[f]
+    # return args, c2, m, n
+    return c2, f, n, m, args
 
 
 class EMA(nn.Cell):
