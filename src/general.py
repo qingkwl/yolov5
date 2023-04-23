@@ -333,8 +333,8 @@ def process_dataset_cfg(dataset_cfg):
     return dataset_cfg
 
 
-def empty(seq: list | tuple | np.ndarray | str):
-    if isinstance(seq, (list, tuple, np.ndarray, str)):
+def empty(seq: list | tuple | np.ndarray | str | dict):
+    if isinstance(seq, (list, tuple, np.ndarray, str, dict)):
         return len(seq) == 0
     raise TypeError(f"Unsupported type {type(seq)} of input `seq`")
 

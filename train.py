@@ -352,7 +352,7 @@ class TrainManager:
         # val
         rect = False
         test_path = self.data_cfg["val"]
-        num_parallel_workers = 4 if opt.rank_size > 1 else 8,
+        num_parallel_workers = 4 if opt.rank_size > 1 else 8
         val_dataloader, val_dataset, val_per_epoch_size = create_dataloader(test_path, imgsz, opt.batch_size, gs,
                                                                             opt, epoch_size=epoch_size, pad=0.5,
                                                                             rect=rect, rank=opt.rank,
