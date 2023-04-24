@@ -413,115 +413,115 @@ class COCOEval(COCOeval):
         This is a modified version of original coco eval api which provide map result of each class.
     """
 
-    def __init__(self, cocoGt=None, cocoDt=None, iouType='segm'):
-        super().__init__(cocoGt, cocoDt, iouType)
+    def __init__(self, coco_gt=None, coco_dt=None, iou_type='segm'):
+        super().__init__(coco_gt, coco_dt, iou_type)
         self.stats_str = ''
         self.category_stats = []
         self.category_stats_strs = []
 
-    def summarize(self, categoryIds=None):
+    def summarize(self, category_ids=None):
         """
             Compute and display summary metrics for evaluation results.
             Note this function can *only* be applied on the default parameter setting
         """
         # categoryIds = -1, get all categories' individual result
         p = self.params
-        if categoryIds == -1:
-            categoryIds = [i for i, i_catId in enumerate(p.catIds)]
-        elif categoryIds is not None:   # list of int
-            categoryIds = [i for i, i_catId in enumerate(p.catIds) if i in categoryIds]
+        if category_ids == -1:
+            category_ids = [i for i, i_catId in enumerate(p.catIds)]
+        elif category_ids is not None:   # list of int
+            category_ids = [i for i, i_catId in enumerate(p.catIds) if i in category_ids]
 
-        def _summarize(ap=1, iouThr=None, areaRng='all', maxDets=100, categoryId=None):
-            p = self.params
-            iStr = ' {:<18} {} @[ IoU={:<9} | area={:>6s} | maxDets={:>3d} ] = {:0.3f}'
-            titleStr = 'Average Precision' if ap == 1 else 'Average Recall'
-            typeStr = '(AP)' if ap == 1 else '(AR)'
-            iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
-                if iouThr is None else '{:0.2f}'.format(iouThr)
+        def _summarize(ap=1, iou_thr=None, area_rng='all', max_dets=100, category_id=None):
+            i_str = ' {:<18} {} @[ IoU={:<9} | area={:>6s} | maxDets={:>3d} ] = {:0.3f}'
+            title_str = 'Average Precision' if ap == 1 else 'Average Recall'
+            type_str = '(AP)' if ap == 1 else '(AR)'
+            iou_str = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
+                if iou_thr is None else '{:0.2f}'.format(iou_thr)
 
-            aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == areaRng]
-            mind = [i for i, mDet in enumerate(p.maxDets) if mDet == maxDets]
+            aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == area_rng]
+            mind = [i for i, mDet in enumerate(p.maxDets) if mDet == max_dets]
             if ap == 1:
                 # dimension of precision: [TxRxKxAxM]
                 s = self.eval['precision']
                 # IoU
-                if iouThr is not None:
-                    t = np.where(iouThr == p.iouThrs)[0]
+                if iou_thr is not None:
+                    t = np.where(iou_thr == p.iouThrs)[0]
                     s = s[t]
                 s = s[:, :, :, aind, mind]
-                if categoryId is not None:
-                    category_index = [i for i, i_catId in enumerate(p.catIds) if i_catId == categoryId]
+                if category_id is not None:
+                    category_index = [i for i, i_catId in enumerate(p.catIds) if i_catId == category_id]
                     s = s[:, :, category_index, :]
             else:
                 # dimension of recall: [TxKxAxM]
                 s = self.eval['recall']
-                if iouThr is not None:
-                    t = np.where(iouThr == p.iouThrs)[0]
+                if iou_thr is not None:
+                    t = np.where(iou_thr == p.iouThrs)[0]
                     s = s[t]
                 s = s[:, :, aind, mind]
-                if categoryId is not None:
-                    category_index = [i for i, i_catId in enumerate(p.catIds) if i_catId == categoryId]
+                if category_id is not None:
+                    category_index = [i for i, i_catId in enumerate(p.catIds) if i_catId == category_id]
                     s = s[:, category_index, :]
             if empty(s[s > -1]):
                 mean_s = -1
             else:
                 mean_s = np.mean(s[s > -1])
-            return mean_s, iStr.format(titleStr, typeStr, iouStr, areaRng, maxDets, mean_s)
+            return mean_s, i_str.format(title_str, type_str, iou_str, area_rng, max_dets, mean_s)
 
-        def _summarizeDets(categoryId=None):
+        def _summarizeDets(category_id=None):
             stats = np.zeros((12,))
             stats_str = [''] * 12
-            stats[0], stats_str[0] = _summarize(1, categoryId=categoryId)
-            stats[1], stats_str[1] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[2], stats_str[2] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[3], stats_str[3] = _summarize(1, areaRng='small',
-                                                maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[4], stats_str[4] = _summarize(1, areaRng='medium',
-                                                maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[5], stats_str[5] = _summarize(1, areaRng='large',
-                                                maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[6], stats_str[6] = _summarize(0, maxDets=self.params.maxDets[0], categoryId=categoryId)
-            stats[7], stats_str[7] = _summarize(0, maxDets=self.params.maxDets[1], categoryId=categoryId)
-            stats[8], stats_str[8] = _summarize(0, maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[9], stats_str[9] = _summarize(0, areaRng='small',
-                                                maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[10], stats_str[10] = _summarize(0, areaRng='medium',
-                                                  maxDets=self.params.maxDets[2], categoryId=categoryId)
-            stats[11], stats_str[11] = _summarize(0, areaRng='large',
-                                                  maxDets=self.params.maxDets[2], categoryId=categoryId)
+            stats[0], stats_str[0] = _summarize(1, category_id=category_id)
+            stats[1], stats_str[1] = _summarize(1, iou_thr=.5, max_dets=self.params.maxDets[2], category_id=category_id)
+            stats[2], stats_str[2] = _summarize(1, iou_thr=.75, max_dets=self.params.maxDets[2],
+                                                category_id=category_id)
+            stats[3], stats_str[3] = _summarize(1, area_rng='small',
+                                                max_dets=self.params.maxDets[2], category_id=category_id)
+            stats[4], stats_str[4] = _summarize(1, area_rng='medium',
+                                                max_dets=self.params.maxDets[2], category_id=category_id)
+            stats[5], stats_str[5] = _summarize(1, area_rng='large',
+                                                max_dets=self.params.maxDets[2], category_id=category_id)
+            stats[6], stats_str[6] = _summarize(0, max_dets=self.params.maxDets[0], category_id=category_id)
+            stats[7], stats_str[7] = _summarize(0, max_dets=self.params.maxDets[1], category_id=category_id)
+            stats[8], stats_str[8] = _summarize(0, max_dets=self.params.maxDets[2], category_id=category_id)
+            stats[9], stats_str[9] = _summarize(0, area_rng='small',
+                                                max_dets=self.params.maxDets[2], category_id=category_id)
+            stats[10], stats_str[10] = _summarize(0, area_rng='medium',
+                                                  max_dets=self.params.maxDets[2], category_id=category_id)
+            stats[11], stats_str[11] = _summarize(0, area_rng='large',
+                                                  max_dets=self.params.maxDets[2], category_id=category_id)
             return stats, '\n'.join(stats_str)
 
-        def _summarizeKps(categoryId=None):
+        def _summarizeKps(category_id=None):
             stats = np.zeros((10,))
             stats_str = [''] * 10
-            stats[0], stats_str[0] = _summarize(1, maxDets=20, categoryId=categoryId)
-            stats[1], stats_str[1] = _summarize(1, maxDets=20, iouThr=.5, categoryId=categoryId)
-            stats[2], stats_str[2] = _summarize(1, maxDets=20, iouThr=.75, categoryId=categoryId)
-            stats[3], stats_str[3] = _summarize(1, maxDets=20, areaRng='medium', categoryId=categoryId)
-            stats[4], stats_str[4] = _summarize(1, maxDets=20, areaRng='large', categoryId=categoryId)
-            stats[5], stats_str[5] = _summarize(0, maxDets=20, categoryId=categoryId)
-            stats[6], stats_str[6] = _summarize(0, maxDets=20, iouThr=.5, categoryId=categoryId)
-            stats[7], stats_str[7] = _summarize(0, maxDets=20, iouThr=.75, categoryId=categoryId)
-            stats[8], stats_str[8] = _summarize(0, maxDets=20, areaRng='medium', categoryId=categoryId)
-            stats[9], stats_str[9] = _summarize(0, maxDets=20, areaRng='large', categoryId=categoryId)
+            stats[0], stats_str[0] = _summarize(1, max_dets=20, category_id=category_id)
+            stats[1], stats_str[1] = _summarize(1, max_dets=20, iou_thr=.5, category_id=category_id)
+            stats[2], stats_str[2] = _summarize(1, max_dets=20, iou_thr=.75, category_id=category_id)
+            stats[3], stats_str[3] = _summarize(1, max_dets=20, area_rng='medium', category_id=category_id)
+            stats[4], stats_str[4] = _summarize(1, max_dets=20, area_rng='large', category_id=category_id)
+            stats[5], stats_str[5] = _summarize(0, max_dets=20, category_id=category_id)
+            stats[6], stats_str[6] = _summarize(0, max_dets=20, iou_thr=.5, category_id=category_id)
+            stats[7], stats_str[7] = _summarize(0, max_dets=20, iou_thr=.75, category_id=category_id)
+            stats[8], stats_str[8] = _summarize(0, max_dets=20, area_rng='medium', category_id=category_id)
+            stats[9], stats_str[9] = _summarize(0, max_dets=20, area_rng='large', category_id=category_id)
             return stats, '\n'.join(stats_str)
 
         if not self.eval:
             raise Exception('Please run accumulate() first')
-        iouType = self.params.iouType
-        if iouType in ('segm', 'bbox'):
+        iou_type = self.params.iouType
+        if iou_type in ('segm', 'bbox'):
             summarize = _summarizeDets
-        elif iouType == 'keypoints':
+        elif iou_type == 'keypoints':
             summarize = _summarizeKps
         else:
-            raise ValueError(f"Unsupported iouType: {iouType}")
+            raise ValueError(f"Unsupported iouType: {iou_type}")
 
         self.stats, self.stats_str = summarize()
-        if categoryIds is not None:
+        if category_ids is not None:
             self.category_stats = []
             self.category_stats_strs = []
-            for category_id in categoryIds:
-                category_stat, category_stats_str = summarize(categoryId=category_id)
+            for category_id in category_ids:
+                category_stat, category_stats_str = summarize(category_id=category_id)
                 self.category_stats.append(category_stat)
                 self.category_stats_strs.append(category_stats_str)
 

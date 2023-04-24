@@ -28,9 +28,9 @@ class ModelBase(metaclass=ABCMeta):
         super().__init__()
         self.model = None
 
-    @abstractmethod
-    def _init_model(self):
-        pass
+    def __del__(self):
+        if hasattr(self, "model") and self.model:
+            del self.model
 
     @abstractmethod
     def infer(self, x: np.numarray) -> List[np.numarray]:
@@ -43,6 +43,6 @@ class ModelBase(metaclass=ABCMeta):
 
         """
 
-    def __del__(self):
-        if hasattr(self, "model") and self.model:
-            del self.model
+    @abstractmethod
+    def _init_model(self):
+        pass

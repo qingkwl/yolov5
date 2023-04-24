@@ -65,9 +65,31 @@ class COCOManager(BaseManager):
         self._check_args()
         self.logger.info(f"COCO Dataset Args:\n {self.args}")
 
-    def _check_args(self) -> None:
-        if empty(self.args.root) or not exists(self.args.root):
-            raise FileNotFoundError(f"The root directory [{self.args.root}] not found.")
+    @staticmethod
+    def _get_box(img, ann) -> np.ndarray:
+        h, w = img['height'], img['width']
+        # The COCO box format is [top left x, top left y, width, height]
+        box = np.array(ann['bbox'], dtype=np.float64)
+        box[:2] += box[2:] / 2  # xy top-left corner to center
+        box[[0, 2]] /= w  # normalize x
+        box[[1, 3]] /= h  # normalize y
+        return box
+
+    @staticmethod
+    def _check_continuity(arr: list) -> bool:
+        return all(a + 1 == b for a, b in zip(arr, arr[1:]))
+
+    @staticmethod
+    def _min_index(arr1: np.ndarray, arr2: np.ndarray):
+        """Find a pair of indexes with the shortest distance.
+        Args:
+            arr1 (np.ndarray): (N, 2).
+            arr2 (np.ndarray): (M, 2).
+        Return:
+            a pair of indexes(tuple).
+        """
+        dis = ((arr1[:, None, :] - arr2[None, :, :]) ** 2).sum(-1)
+        return np.unravel_index(np.argmin(dis, axis=None), dis.shape)
 
     def convert(self,
                 target_format: str,
@@ -93,6 +115,23 @@ class COCOManager(BaseManager):
             self._to_labelme(data_config)
         else:
             raise ValueError(f"The target format [{target_format}] is not supported.")
+
+    def split(self) -> None:
+        if empty(self.args.data_dir) or not exists(self.args.data_dir):
+            raise FileNotFoundError(f"Directory [{self.args.data_dir}] not found.")
+        src_dir = Path(self.args.data_dir)
+        train_coco, val_coco = self._split_annotations()
+        with os.fdopen(os.open(self.args.train_anno, WRITE_FLAGS, FILE_MODE), "w") as file:
+            json.dump(train_coco, file, indent=4)
+        with os.fdopen(os.open(self.args.val_anno, WRITE_FLAGS, FILE_MODE), "w") as file:
+            json.dump(val_coco, file, indent=4)
+        self._copy_images(src_dir, "train")
+        self._copy_images(src_dir, "val")
+        self._validate_dataset()
+
+    def _check_args(self) -> None:
+        if empty(self.args.root) or not exists(self.args.root):
+            raise FileNotFoundError(f"The root directory [{self.args.root}] not found.")
 
     def _to_yolo(self,
                  data_config: BaseArgs,
@@ -137,8 +176,8 @@ class COCOManager(BaseManager):
                     # Write
                     with os.fdopen(os.open((label_folder / file_name).with_suffix('.txt'),
                                            WRITE_FLAGS, FILE_MODE), 'a') as file:
-                        for i in range(len(bboxes)):
-                            line = (*(segments[i] if use_segments else bboxes[i]),)  # cls, box or segments
+                        for i, box in enumerate(bboxes):
+                            line = (*(segments[i] if use_segments else box),)  # cls, box or segments
                             file.write(('%g ' * len(line)).rstrip() % line + '\n')
                     dst_img_path = image_folder / new_img_name
                     if copy_images:
@@ -163,19 +202,6 @@ class COCOManager(BaseManager):
 
     def _to_labelme(self, data_config: BaseArgs):
         pass
-
-    def split(self) -> None:
-        if empty(self.args.data_dir) or not exists(self.args.data_dir):
-            raise FileNotFoundError(f"Directory [{self.args.data_dir}] not found.")
-        src_dir = Path(self.args.data_dir)
-        train_coco, val_coco = self._split_annotations()
-        with os.fdopen(os.open(self.args.train_anno, WRITE_FLAGS, FILE_MODE), "w") as file:
-            json.dump(train_coco, file, indent=4)
-        with os.fdopen(os.open(self.args.val_anno, WRITE_FLAGS, FILE_MODE), "w") as file:
-            json.dump(val_coco, file, indent=4)
-        self._copy_images(src_dir, "train")
-        self._copy_images(src_dir, "val")
-        self._validate_dataset()
 
     def _split_annotations(self) -> tuple[dict, dict]:
         if empty(self.args.data_anno) or not exists(self.args.data_anno):
@@ -237,17 +263,6 @@ class COCOManager(BaseManager):
                 name = img["file_name"]
                 shutil.copy(src_dir / name, dst_dir)
 
-    def _min_index(self, arr1: np.ndarray, arr2: np.ndarray):
-        """Find a pair of indexes with the shortest distance.
-        Args:
-            arr1 (np.ndarray): (N, 2).
-            arr2 (np.ndarray): (M, 2).
-        Return:
-            a pair of indexes(tuple).
-        """
-        dis = ((arr1[:, None, :] - arr2[None, :, :]) ** 2).sum(-1)
-        return np.unravel_index(np.argmin(dis, axis=None), dis.shape)
-
     def _merge_multi_segment(self, segments):
         """Merge multi segments to one list.
         Find the coordinates with min distance between each segment,
@@ -296,9 +311,6 @@ class COCOManager(BaseManager):
                         s.append(segments[i][nidx:])
         return s
 
-    def _check_continuity(self, arr: list) -> bool:
-        return all(a + 1 == b for a, b in zip(arr, arr[1:]))
-
     def _get_boxes(self, img, anns, category_map, use_segments: bool = False):
         bboxes = []
         segments = []
@@ -326,15 +338,6 @@ class COCOManager(BaseManager):
                 if s not in segments:
                     segments.append(s)
         return bboxes, segments
-
-    def _get_box(self, img, ann) -> np.ndarray:
-        h, w = img['height'], img['width']
-        # The COCO box format is [top left x, top left y, width, height]
-        box = np.array(ann['bbox'], dtype=np.float64)
-        box[:2] += box[2:] / 2  # xy top-left corner to center
-        box[[0, 2]] /= w  # normalize x
-        box[[1, 3]] /= h  # normalize y
-        return box
 
     def _check_images(self, anno: PATH, img_dir: PATH) -> None:
         anno, img_dir = Path(anno), Path(img_dir)

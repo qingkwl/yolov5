@@ -15,7 +15,7 @@
 
 import os
 
-_global_sync_count = 0
+_GLOBAL_SYNC_COUNT = 0
 
 
 def get_device_id():
@@ -40,9 +40,9 @@ def sync_data(from_path, to_path):
     """
     import moxing as mox
     import time
-    global _global_sync_count
-    sync_lock = "/tmp/copy_sync.lock" + str(_global_sync_count)
-    _global_sync_count += 1
+    global _GLOBAL_SYNC_COUNT
+    sync_lock = "/tmp/copy_sync.lock" + str(_GLOBAL_SYNC_COUNT)
+    _GLOBAL_SYNC_COUNT += 1
 
     # Each server contains 8 devices as most.
     if get_device_id() % min(get_device_num(), 8) == 0 and not os.path.exists(sync_lock):

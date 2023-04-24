@@ -80,16 +80,16 @@ class LabelmeManager(BaseManager):
         self.ann_id = 1
         self.img_id = 1
 
+    @staticmethod
+    def is_img_suffix(suffix: str) -> bool:
+        return suffix.lower() in ('.jpg', '.png', '.bmp')
+
     def reset(self) -> None:
         self.images.clear()
         self.categories.clear()
         self.annotations.clear()
         self.ann_id = 1
         self.img_id = 1
-
-    def _check_dirs(self) -> None:
-        if empty(self.args.root):
-            raise ValueError(f"The root directory is empty, which must be set.")
 
     def convert(self, target_format: str, data_config: BaseArgs, copy_images: bool = True):
         target_format = target_format.lower()
@@ -98,6 +98,10 @@ class LabelmeManager(BaseManager):
             self._to_coco(data_config, copy_images=copy_images)
         else:
             raise ValueError(f"The target format [{target_format}] is not supported.")
+
+    def _check_dirs(self) -> None:
+        if empty(self.args.root):
+            raise ValueError(f"The root directory is empty, which must be set.")
 
     def _convert_to_coco(self, data_dir: Path, target_dir: Path, copy_images: bool = True) -> dict[str, Any]:
         json_file_list = list(data_dir.rglob("*.json"))
@@ -172,9 +176,6 @@ class LabelmeManager(BaseManager):
             'file_name': img_path.name
         }
         return img_info, img_data
-
-    def is_img_suffix(self, suffix: str) -> bool:
-        return suffix.lower() in ('.jpg', '.png', '.bmp')
 
     def _to_coco(self, data_config: BaseArgs, copy_images: bool = False) -> None:
         def _convert_data(data_dir: PATH, target_dir: PATH, target_json: PATH):

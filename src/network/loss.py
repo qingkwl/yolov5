@@ -121,7 +121,7 @@ def batch_box_iou(batch_box1, batch_box2):
                                                                         None)  # iou = inter / (area1 + area2 - inter)
 
 
-def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7):
+def bbox_iou(box1, box2, xywh=True, g_iou=False, d_iou=False, c_iou=False, eps=1e-7):
     # Returns Intersection over Union (IoU) of box1(1,4) to box2(n,4)
 
     # Get the coordinates of bounding boxes
@@ -146,13 +146,13 @@ def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7
 
     # IoU
     iou = inter / union
-    if CIoU or DIoU or GIoU:
+    if c_iou or d_iou or g_iou:
         cw = ops.maximum(b1_x2, b2_x2) - ops.minimum(b1_x1, b2_x1)  # convex (smallest enclosing box) width
         ch = ops.maximum(b1_y2, b2_y2) - ops.minimum(b1_y1, b2_y1)  # convex height
-        if CIoU or DIoU:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
+        if c_iou or d_iou:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
             c2 = cw ** 2 + ch ** 2 + eps  # convex diagonal squared
             rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2) ** 2 + (b2_y1 + b2_y2 - b1_y1 - b1_y2) ** 2) / 4  # center dist ** 2
-            if CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
+            if c_iou:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
                 v = (4 / get_pi(iou.dtype) ** 2) * ops.pow(ops.atan(w2 / (h2 + eps)) - ops.atan(w1 / (h1 + eps)), 2)
                 alpha = v / (v - iou + (1 + eps))
                 alpha = ops.stop_gradient(alpha)
@@ -163,7 +163,7 @@ def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7
     return iou  # IoU
 
 
-def bbox_iou_2(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7):
+def bbox_iou_2(box1, box2, x1y1x2y2=True, g_iou=False, d_iou=False, c_iou=False, eps=1e-7):
     # Returns the IoU of box1 to box2. box1 is 4, box2 is nx4
 
     # box1/2, (n, 4) -> (4, n)
@@ -190,16 +190,16 @@ def bbox_iou_2(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, ep
 
     iou = inter / union
 
-    if GIoU or DIoU or CIoU:
+    if g_iou or d_iou or c_iou:
         cw = ops.maximum(b1_x2, b2_x2) - ops.minimum(b1_x1, b2_x1)  # convex (smallest enclosing box) width
         ch = ops.maximum(b1_y2, b2_y2) - ops.minimum(b1_y1, b2_y1)  # convex height
-        if CIoU or DIoU:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
+        if c_iou or d_iou:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
             c2 = cw ** 2 + ch ** 2 + eps  # convex diagonal squared
             rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2) ** 2 +
                     (b2_y1 + b2_y2 - b1_y1 - b1_y2) ** 2) / 4  # center distance squared
-            if DIoU:
+            if d_iou:
                 return iou - rho2 / c2  # DIoU
-            if CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
+            if c_iou:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
                 v = (4 / math.pi ** 2) * ops.pow(ops.atan(w2 / (h2 + eps)) - ops.atan(w1 / (h1 + eps)), 2)
                 alpha = v / (v - iou + (1 + eps))
                 alpha = ops.stop_gradient(alpha)
@@ -212,7 +212,7 @@ def bbox_iou_2(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, ep
         return iou  # IoU
 
 
-def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
+def smooth_bce(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
     # return positive, negative label smoothing BCE targets
     return 1.0 - 0.5 * eps, 0.5 * eps
 
@@ -290,23 +290,23 @@ class ComputeLoss(nn.Cell):
         self.hyp_cls = h['cls']
 
         # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
-        self.cp, self.cn = smooth_BCE(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
+        self.cp, self.cn = smooth_bce(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
 
         # Focal loss
         g = h['fl_gamma']  # focal loss gamma
         if g > 0:
-            BCEcls, BCEobj = FocalLoss(bce_pos_weight=Tensor([h['cls_pw']], ms.float32), gamma=g), \
+            bce_cls, bce_obj = FocalLoss(bce_pos_weight=Tensor([h['cls_pw']], ms.float32), gamma=g), \
                              FocalLoss(bce_pos_weight=Tensor([h['obj_pw']], ms.float32), gamma=g)
         else:
             # Define criteria
-            BCEcls = BCEWithLogitsLoss(bce_pos_weight=Tensor(np.array([h['cls_pw']]), ms.float32))
-            BCEobj = BCEWithLogitsLoss(bce_pos_weight=Tensor(np.array([h['obj_pw']]), ms.float32))
+            bce_cls = BCEWithLogitsLoss(bce_pos_weight=Tensor(np.array([h['cls_pw']]), ms.float32))
+            bce_obj = BCEWithLogitsLoss(bce_pos_weight=Tensor(np.array([h['obj_pw']]), ms.float32))
 
         m = model.model[-1]  # Detect() module
         _balance = {3: [4.0, 1.0, 0.4]}.get(m.nl, [4.0, 1.0, 0.25, 0.06, 0.02])  # P3-P7
         self.balance = ms.Parameter(Tensor(_balance, ms.float32), requires_grad=False)
         self.ssi = list(m.stride).index(16) if autobalance else 0  # stride 16 index
-        self.BCEcls, self.BCEobj, self.gr, self.autobalance = BCEcls, BCEobj, 1.0, autobalance
+        self.bce_cls, self.bce_obj, self.gr, self.autobalance = bce_cls, bce_obj, 1.0, autobalance
         self.na = m.na  # number of anchors
         self.nc = m.nc  # number of classes
         self.nl = m.nl  # number of layers
@@ -351,7 +351,7 @@ class ComputeLoss(nn.Cell):
                 pxy = ops.Sigmoid()(pxy) * 2 - 0.5
                 pwh = (ops.Sigmoid()(pwh) * 2) ** 2 * anchors[layer_index]
                 pbox = ops.concat((pxy, pwh), 1)  # predicted box
-                iou = bbox_iou(pbox, tbox[layer_index], CIoU=True).squeeze()  # iou(prediction, target)
+                iou = bbox_iou(pbox, tbox[layer_index], c_iou=True).squeeze()  # iou(prediction, target)
                 lbox += ((1.0 - iou) * tmask).sum() / tmask.astype(iou.dtype).sum()  # iou loss
 
                 # Objectness
@@ -368,9 +368,9 @@ class ComputeLoss(nn.Cell):
                     t = ops.fill(pcls.dtype, pcls.shape, self.cn)  # targets
 
                     t[mnp.arange(n), tcls[layer_index]] = self.cp
-                    lcls += self.BCEcls(pcls, t, ops.tile(tmask[:, None], (1, t.shape[-1])))  # BCE
+                    lcls += self.bce_cls(pcls, t, ops.tile(tmask[:, None], (1, t.shape[-1])))  # BCE
 
-            obji = self.BCEobj(self.scatter_index_tensor(pi, 4), tobj)
+            obji = self.bce_obj(self.scatter_index_tensor(pi, 4), tobj)
             lobj += obji * self.balance[layer_index]  # obj loss
             if self.autobalance:
                 self.balance[layer_index] = self.balance[layer_index] * 0.9999 + 0.0001 / obji.item()

@@ -229,6 +229,22 @@ class Detect(nn.Cell):
                                         weight_init=HeUniform(negative_slope=math.sqrt(5)),
                                         bias_init=_init_bias((self.no * self.na, x, 1, 1))) for x in ch])  # output conv
 
+    @staticmethod
+    def _make_grid(nx=20, ny=20, dtype=ms.float32):
+        xv, yv = ops.meshgrid((mnp.arange(nx), mnp.arange(ny)))
+        return ops.cast(ops.stack((xv, yv), 2).view((1, 1, ny, nx, 2)), dtype)
+
+    @staticmethod
+    def convert(z):
+        z = ops.concat(z, 1)
+        box = z[:, :, :4]
+        conf = z[:, :, 4:5]
+        score = z[:, :, 5:]
+        score *= conf
+        convert_matrix = get_convert_matrix()
+        box = ops.matmul(box, convert_matrix)
+        return (box, score)
+
     def construct(self, x):
         z = ()  # inference output
         outs = ()
@@ -251,21 +267,6 @@ class Detect(nn.Cell):
                 z += (y.view(bs, -1, self.no),)
 
         return outs if self.training or self.is_export else (ops.concat(z, 1), outs)
-
-    @staticmethod
-    def _make_grid(nx=20, ny=20, dtype=ms.float32):
-        xv, yv = ops.meshgrid((mnp.arange(nx), mnp.arange(ny)))
-        return ops.cast(ops.stack((xv, yv), 2).view((1, 1, ny, nx, 2)), dtype)
-
-    def convert(self, z):
-        z = ops.concat(z, 1)
-        box = z[:, :, :4]
-        conf = z[:, :, 4:5]
-        score = z[:, :, 5:]
-        score *= conf
-        convert_matrix = get_convert_matrix()
-        box = ops.matmul(box, convert_matrix)
-        return (box, score)
 
 
 class Proto(nn.Cell):

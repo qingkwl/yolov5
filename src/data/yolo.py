@@ -79,15 +79,23 @@ class YOLOManager(BaseManager):
         self._check_args()
         self.logger.info(f"YOLO Dataset Args:\n {self.args}")
 
-    def reset(self) -> None:
-        # Reset some class members for afterwards conversion
-        self.ann_id = 1
-
     @staticmethod
     def read_txt(txt_path: PATH) -> list[str]:
         with open(txt_path, 'r', encoding='utf-8') as f:
             data = list(map(lambda x: x.rstrip('\n'), f))
         return data
+
+    def reset(self) -> None:
+        # Reset some class members for afterwards conversion
+        self.ann_id = 1
+
+    def convert(self, target_format: str, data_config: BaseArgs, copy_images: bool = True) -> None:
+        target_format = target_format.lower()
+        self._validate_dataset()
+        if target_format == "coco":
+            self._to_coco(data_config, copy_images)
+        else:
+            raise ValueError(f"The target format [{target_format}] is not supported.")
 
     def _get_class_names(self) -> dict[int, str]:
         if isinstance(self.args.names, (str, Path)):
@@ -107,7 +115,8 @@ class YOLOManager(BaseManager):
         if empty(self.args.root) or not exists(self.args.root):
             raise FileNotFoundError(f"The root directory [{self.args.root}] not found.")
 
-    def _count_lines(self, filename: Path) -> int:
+    @staticmethod
+    def _count_lines(filename: Path) -> int:
         f = open(filename, 'rb')
         lines = 0
         buf_size = 1024 * 1024
@@ -120,15 +129,8 @@ class YOLOManager(BaseManager):
         f.close()
         return lines
 
-    def convert(self, target_format: str, data_config: BaseArgs, copy_images: bool = True) -> None:
-        target_format = target_format.lower()
-        self._validate_dataset()
-        if target_format == "coco":
-            self._to_coco(data_config, copy_images)
-        else:
-            raise ValueError(f"The target format [{target_format}] is not supported.")
-
-    def _get_box_info(self, vertex_info: list[str], height: int, width: int):
+    @staticmethod
+    def _get_box_info(vertex_info: list[str], height: int, width: int):
         cx, cy, w, h = [float(i) for i in vertex_info]
 
         cx = cx * width

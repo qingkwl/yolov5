@@ -31,6 +31,19 @@ class ConfusionMatrix:
         self.conf = conf
         self.iou_thres = iou_thres
 
+    @staticmethod
+    def get_matches(iou, x):
+        if x[0].shape[0]:
+            matches = np.concatenate((np.stack(x, 1), iou[x[0], x[1]][:, None]), 1)
+            if x[0].shape[0] > 1:
+                matches = matches[matches[:, 2].argsort()[::-1]]
+                matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
+                matches = matches[matches[:, 2].argsort()[::-1]]
+                matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
+        else:
+            matches = np.zeros((0, 3))
+        return matches
+
     def process_batch(self, detections, labels):
         """
         Return intersection-over-union (Jaccard index) of boxes.
@@ -68,19 +81,6 @@ class ConfusionMatrix:
             for i, dc in enumerate(detection_classes):
                 if not any(m1 == i):
                     self.matrix[dc, self.nc] += 1  # predicted background
-
-    @staticmethod
-    def get_matches(iou, x):
-        if x[0].shape[0]:
-            matches = np.concatenate((np.stack(x, 1), iou[x[0], x[1]][:, None]), 1)
-            if x[0].shape[0] > 1:
-                matches = matches[matches[:, 2].argsort()[::-1]]
-                matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
-                matches = matches[matches[:, 2].argsort()[::-1]]
-                matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
-        else:
-            matches = np.zeros((0, 3))
-        return matches
 
     def get_matrix(self):
         return self.matrix

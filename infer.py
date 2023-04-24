@@ -32,30 +32,30 @@ from src.metrics import non_max_suppression, scale_coords
 # python infer.py --
 
 
-def Detect(nc=80, anchor=(), stride=()):
-    no = nc + 5
-    nl = len(anchor)
-    na = len(anchor[0]) // 2
-    anchor_grid = np.array(anchor).reshape((nl, 1, -1, 1, 1, 2))
+class Detect:
+    def __init__(self, nc=80, anchor=(), stride=()):
+        self.nc = nc
+        self.no = nc + 5
+        self.nl = len(anchor)
+        self.na = len(anchor[0]) // 2
+        self.anchor_grid = np.array(anchor).reshape((self.nl, 1, -1, 1, 1, 2))
+        self.stride = stride
 
-    def forward(x):
+    def __call__(self, x):
         z = ()
         outs = ()
-        for i in range(len(x)):
-            out = x[i]
+        for i, out in enumerate(x):
             bs, _, ny, nx = out.shape
-            out = out.reshape(bs, na, no, ny, nx).transpose(0, 1, 3, 4, 2)
+            out = out.reshape(bs, self.na, self.no, ny, nx).transpose(0, 1, 3, 4, 2)
             outs += (out,)
 
             xv, yv = np.meshgrid(np.arange(nx), np.arange(ny))
             grid = np.stack((xv, yv), 2).reshape((1, 1, ny, nx, 2))
             y = 1 / (1 + np.exp(-out))
-            y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid) * stride[i]
-            y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * anchor_grid[i]
-            z += (y.reshape(bs, -1, no),)
+            y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid) * self.stride[i]
+            y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]
+            z += (y.reshape(bs, -1, self.no),)
         return np.concatenate(z, 1), outs
-
-    return forward
 
 
 def infer(opt):

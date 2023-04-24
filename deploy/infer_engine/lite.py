@@ -22,15 +22,7 @@ class LiteModel(ModelBase):
         self.model_path = model_path
         self.device_id = device_id
 
-    def _init_model(self):
-        import mindspore_lite as mslite
-
-        context = mslite.Context()
-        context.target = ['ascend']
-        context.ascend.device_id = self.device_id
-
-        self.model = mslite.Model()
-        self.model.build_from_from_file(self.model_path, mslite.ModelType.MINDIR, context)
+        self._init_model()
 
     def infer(self, x):
         inputs = self.model.get_inputs()
@@ -40,3 +32,13 @@ class LiteModel(ModelBase):
         outputs = self.model.predict(inputs)
         outputs = [outputs.get_data_to_numpy() for output in outputs]
         return outputs
+
+    def _init_model(self):
+        import mindspore_lite as mslite
+
+        context = mslite.Context()
+        context.target = ['ascend']
+        context.ascend.device_id = self.device_id
+
+        self.model = mslite.Model()
+        self.model.build_from_from_file(self.model_path, mslite.ModelType.MINDIR, context)

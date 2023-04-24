@@ -47,7 +47,7 @@ class Redirct:
 
 class CocoDraw:
     def __init__(self):
-        self.COLOR_MAP = [
+        self.color_map = [
             (0, 255, 255),
             (0, 255, 0),
             (255, 0, 0),
@@ -62,7 +62,8 @@ class CocoDraw:
             (128, 0, 128),
         ]
 
-    def write_list_to_csv(self, file_path, data_to_write, append=False):
+    @staticmethod
+    def write_list_to_csv(file_path, data_to_write, append=False):
         print('[INFO] Saving data into file [{}]...'.format(file_path))
         if append:
             open_mode = 'a'
@@ -72,30 +73,32 @@ class CocoDraw:
             writer = csv.writer(csvfile)
             writer.writerow(data_to_write)
 
-    def read_image(self, image_path):
+    @staticmethod
+    def read_image(image_path):
         image = cv2.imread(image_path)
         if image is None:
             return False, None
         return True, image
 
-    def save_image(self, image_path, image):
+    @staticmethod
+    def save_image(image_path, image):
         return cv2.imwrite(image_path, image)
 
     def draw_rectangle(self, image, pt1, pt2, label=None):
         if label is not None:
-            map_index = label % len(self.COLOR_MAP)
-            color = self.COLOR_MAP[map_index]
+            map_index = label % len(self.color_map)
+            color = self.color_map[map_index]
         else:
-            color = self.COLOR_MAP[0]
+            color = self.color_map[0]
         thickness = 5
         cv2.rectangle(image, pt1, pt2, color, thickness)
 
     def draw_text(self, image, text, org, label=None):
         if label is not None:
-            map_index = label % len(self.COLOR_MAP)
-            color = self.COLOR_MAP[map_index]
+            map_index = label % len(self.color_map)
+            color = self.color_map[map_index]
         else:
-            color = self.COLOR_MAP[0]
+            color = self.color_map[0]
         font_face = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.6
         thickness = 1
@@ -104,10 +107,10 @@ class CocoDraw:
     def draw_one_box(self, image, label, box, cat_id, line_thickness=None):
         tl = line_thickness or round(0.002 * (image.shape[0] + image.shape[1]) / 2) + 1
         if cat_id is not None:
-            map_index = cat_id % len(self.COLOR_MAP)
-            color = self.COLOR_MAP[map_index]
+            map_index = cat_id % len(self.color_map)
+            color = self.color_map[map_index]
         else:
-            color = self.COLOR_MAP[0]
+            color = self.color_map[0]
         c1, c2 = (int(box[0]), int(box[1])), (int(box[2]), int(box[3]))
         cv2.rectangle(image, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
 
@@ -120,29 +123,29 @@ class CocoDraw:
 
 
 class DetectEval(COCOeval):
-    def __init__(self, cocoGt=None, cocoDt=None, iouType="bbox"):
-        assert iouType == "bbox", "iouType only supported bbox"
+    def __init__(self, coco_gt=None, coco_dt=None, iou_type="bbox"):
+        assert iou_type == "bbox", "iouType only supported bbox"
         self.draw_tool = CocoDraw()
-        super().__init__(cocoGt, cocoDt, iouType)
+        super().__init__(coco_gt, coco_dt, iou_type)
         if self.cocoGt is not None:
-            cat_infos = cocoGt.loadCats(cocoGt.getCatIds())
+            cat_infos = coco_gt.loadCats(coco_gt.getCatIds())
             self.params.labels = {}
             for cat in cat_infos:
                 self.params.labels[cat["id"]] = cat["name"]
 
     # add new
-    def catId_summarize(self, catId, iouThr=None, areaRng="all", maxDets=100):
+    def cat_id_summarize(self, cat_id, iou_thr=None, area_rng="all", max_dets=100):
         p = self.params
-        aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == areaRng]
-        mind = [i for i, mDet in enumerate(p.maxDets) if mDet == maxDets]
+        aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == area_rng]
+        mind = [i for i, mDet in enumerate(p.maxDets) if mDet == max_dets]
 
         s = self.eval["recall"]
-        if iouThr is not None:
-            iou = np.where(iouThr == p.iouThrs)[0]
+        if iou_thr is not None:
+            iou = np.where(iou_thr == p.iouThrs)[0]
             s = s[iou]
 
-        if isinstance(catId, int):
-            s = s[:, catId, aind, mind]
+        if isinstance(cat_id, int):
+            s = s[:, cat_id, aind, mind]
         else:
             s = s[:, :, aind, mind]
 
@@ -155,18 +158,18 @@ class DetectEval(COCOeval):
 
     def compute_gt_dt_num(self):
         p = self.params
-        catIds_gt_num = {}
-        catIds_dt_num = {}
+        cat_ids_gt_num = {}
+        cat_ids_dt_num = {}
 
         for ids in p.catIds:
             gts_cat_id = self.cocoGt.loadAnns(self.cocoGt.getAnnIds(catIds=[ids]))
             dts_cat_id = self.cocoDt.loadAnns(self.cocoDt.getAnnIds(catIds=[ids]))
-            catIds_gt_num[ids] = len(gts_cat_id)
-            catIds_dt_num[ids] = len(dts_cat_id)
+            cat_ids_gt_num[ids] = len(gts_cat_id)
+            cat_ids_dt_num[ids] = len(dts_cat_id)
 
-        return catIds_gt_num, catIds_dt_num
+        return cat_ids_gt_num, cat_ids_dt_num
 
-    def evaluate_ok_ng(self, img_id, catIds, iou_threshold=0.5):
+    def evaluate_ok_ng(self, img_id, cat_ids, iou_threshold=0.5):
         """
         evaluate every if this image is ok、precision_ng、recall_ng
         img_id: int
@@ -178,7 +181,7 @@ class DetectEval(COCOeval):
 
         # Save the results of precision_ng and recall_ng for each category on a picture
         cat_id_result = {}
-        for cat_id in catIds:
+        for cat_id in cat_ids:
             gt = self._gts[img_id, cat_id]
             dt = self._dts[img_id, cat_id]
             ious = self.computeIoU(img_id, cat_id)
@@ -265,7 +268,7 @@ class DetectEval(COCOeval):
 
         for i, cat_id in enumerate(cat_ids):
             # Here is hard-coded
-            stats = self.catId_summarize(catId=i)
+            stats = self.cat_id_summarize(cat_id=i)
             recall = stats
             gt_num = catIds_gt_num[cat_id]
             tp_num = recall * gt_num
@@ -515,8 +518,8 @@ class DetectEval(COCOeval):
         m_list = [m for n, m in enumerate(p.maxDets)]
         a_list: List[int] = [n for n, a in enumerate(p.areaRng)]
         i_list = [n for n, i in enumerate(p.imgIds)]
-        I0 = len(p.imgIds)
-        A0 = len(p.areaRng)
+        num_image = len(p.imgIds)
+        num_area_rng = len(p.areaRng)
 
         # cat_pr_dict:
         # >> example:
@@ -525,31 +528,31 @@ class DetectEval(COCOeval):
         cat_pr_dict_origin = {}
 
         for k0 in k_list:
-            Nk = k0 * A0 * I0
+            num_cat = k0 * num_area_rng * num_image
             # areagRng
-            for a0 in a_list:
-                Na = a0 * I0
+            for num_area_rng in a_list:
+                num_area = num_area_rng * num_image
                 # maxDet
                 for maxDet in m_list:
-                    E = [self.evalImgs[Nk + Na + i] for i in i_list]
-                    E = [e for e in E if not e is None]
-                    if not E:
+                    eval_images = [self.evalImgs[num_cat + num_area + i] for i in i_list]
+                    eval_images = [e for e in eval_images if e is not None]
+                    if not eval_images:
                         continue
-                    dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E])
+                    dt_scores = np.concatenate([e['dtScores'][0:maxDet] for e in eval_images])
 
                     # different sorting method generates slightly different results.
                     # mergesort is used to be consistent as Matlab implementation.
-                    inds = np.argsort(-dtScores, kind='mergesort')
-                    dtScoresSorted = dtScores[inds]
+                    inds = np.argsort(-dt_scores, kind='mergesort')
+                    dt_scores_sorted = dt_scores[inds]
 
-                    dtm = np.concatenate([e['dtMatches'][:, 0:maxDet] for e in E], axis=1)[:, inds]
-                    dtIg = np.concatenate([e['dtIgnore'][:, 0:maxDet] for e in E], axis=1)[:, inds]
-                    gtIg = np.concatenate([e['gtIgnore'] for e in E])
-                    npig = np.count_nonzero(gtIg == 0)
+                    dtm = np.concatenate([e['dtMatches'][:, 0:maxDet] for e in eval_images], axis=1)[:, inds]
+                    dt_ig = np.concatenate([e['dtIgnore'][:, 0:maxDet] for e in eval_images], axis=1)[:, inds]
+                    gt_ig = np.concatenate([e['gtIgnore'] for e in eval_images])
+                    npig = np.count_nonzero(gt_ig == 0)
                     if npig == 0:
                         continue
-                    tps = np.logical_and(dtm, np.logical_not(dtIg))
-                    fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg))
+                    tps = np.logical_and(dtm, np.logical_not(dt_ig))
+                    fps = np.logical_and(np.logical_not(dtm), np.logical_not(dt_ig))
 
                     # Ensure that iou has only one value
                     assert (tps.shape[0]) == 1
@@ -560,11 +563,11 @@ class DetectEval(COCOeval):
                     ids = catIds[k0]
                     label = labels[ids]
 
-                    self.calculate_pr_dict(tp_sum, fp_sum, label, npig, dtScoresSorted, cat_pr_dict, cat_pr_dict_origin,
-                                           min_score=min_score)
+                    self.calculate_pr_dict(tp_sum, fp_sum, label, npig, dt_scores_sorted, cat_pr_dict,
+                                           cat_pr_dict_origin, min_score=min_score)
         return cat_pr_dict, cat_pr_dict_origin
 
-    def calculate_pr_dict(self, tp_sum, fp_sum, label, npig, dtScoresSorted, cat_pr_dict, cat_pr_dict_origin,
+    def calculate_pr_dict(self, tp_sum, fp_sum, label, npig, dt_scores_sorted, cat_pr_dict, cat_pr_dict_origin,
                           min_score=0.1):
         # iou
         for (tp, fp) in zip(tp_sum, fp_sum):
@@ -576,7 +579,7 @@ class DetectEval(COCOeval):
             f1 = np.divide(2 * (rc * pr), pr + rc, out=np.zeros_like(2 * (rc * pr)), where=pr + rc != 0)
 
             conf_thres = [int(i) * 0.01 for i in range(10, 100, 10)]
-            dtscores_ascend = dtScoresSorted[::-1]
+            dtscores_ascend = dt_scores_sorted[::-1]
             inds = np.searchsorted(dtscores_ascend, conf_thres, side='left')
             pr_new = [0.0] * len(conf_thres)
             rc_new = [0.0] * len(conf_thres)
@@ -598,7 +601,7 @@ class DetectEval(COCOeval):
                 pass
             # Ensure that the second, third, and fourth for loops only enter once
             if label not in cat_pr_dict.keys():
-                cat_pr_dict_origin[label] = [pr[::-1], rc[::-1], f1[::-1], dtScoresSorted[::-1]]
+                cat_pr_dict_origin[label] = [pr[::-1], rc[::-1], f1[::-1], dt_scores_sorted[::-1]]
                 cat_pr_dict[label] = [pr_new, rc_new, f1_new, conf_thres]
             else:
                 break
@@ -621,36 +624,36 @@ class DetectEval(COCOeval):
         a_list = list(range(len(p.areaRng)))
         i_list = list(range(len(p.imgIds)))
 
-        I0 = len(p.imgIds)
-        A0 = len(p.areaRng)
+        num_img = len(p.imgIds)
+        num_area_rng = len(p.areaRng)
         # cat_dict
         correct_conf_dict = {}
         incorrect_conf_dict = {}
 
         for k0 in k_list:
-            Nk = k0 * A0 * I0
+            num_cat = k0 * num_area_rng * num_img
             # areagRng
             for a0 in a_list:
-                Na = a0 * I0
+                num_area = a0 * num_img
                 # maxDet
-                for maxDet in m_list:
-                    E = [self.evalImgs[Nk + Na + i] for i in i_list]
-                    E = [e for e in E if not e is None]
-                    if not E:
+                for max_det in m_list:
+                    eval_images = [self.evalImgs[num_cat + num_area + i] for i in i_list]
+                    eval_images = [e for e in eval_images if e is not None]
+                    if not eval_images:
                         continue
-                    dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E])
+                    dt_scores = np.concatenate([e['dtScores'][0:max_det] for e in eval_images])
 
-                    inds = np.argsort(-dtScores, kind='mergesort')
-                    dtScoresSorted = dtScores[inds]
+                    inds = np.argsort(-dt_scores, kind='mergesort')
+                    dt_scores_sorted = dt_scores[inds]
 
-                    dtm = np.concatenate([e['dtMatches'][:, 0:maxDet] for e in E], axis=1)[:, inds]
-                    dtIg = np.concatenate([e['dtIgnore'][:, 0:maxDet] for e in E], axis=1)[:, inds]
-                    gtIg = np.concatenate([e['gtIgnore'] for e in E])
-                    npig = np.count_nonzero(gtIg == 0)
+                    dtm = np.concatenate([e['dtMatches'][:, 0:max_det] for e in eval_images], axis=1)[:, inds]
+                    dt_ig = np.concatenate([e['dtIgnore'][:, 0:max_det] for e in eval_images], axis=1)[:, inds]
+                    gt_ig = np.concatenate([e['gtIgnore'] for e in eval_images])
+                    npig = np.count_nonzero(gt_ig == 0)
                     if npig == 0:
                         continue
-                    tps = np.logical_and(dtm, np.logical_not(dtIg))
-                    fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg))
+                    tps = np.logical_and(dtm, np.logical_not(dt_ig))
+                    fps = np.logical_and(np.logical_not(dtm), np.logical_not(dt_ig))
 
                     # Ensure that iou has only one value
                     assert (tps.shape[0]) == 1
@@ -659,8 +662,8 @@ class DetectEval(COCOeval):
                     tp_inds = np.where(tps)
                     fp_inds = np.where(fps)
 
-                    tp_confidence = dtScoresSorted[tp_inds[1]]
-                    fp_confidence = dtScoresSorted[fp_inds[1]]
+                    tp_confidence = dt_scores_sorted[tp_inds[1]]
+                    fp_confidence = dt_scores_sorted[fp_inds[1]]
                     tp_confidence_li = tp_confidence.tolist()
                     fp_confidence_li = fp_confidence.tolist()
                     ids = catIds[k0]
@@ -670,13 +673,13 @@ class DetectEval(COCOeval):
                     if label not in correct_conf_dict.keys():
                         correct_conf_dict[label] = tp_confidence_li
                     else:
-                        print("maxDet:", maxDet, " ", "areagRng:", p.areagRng)
+                        print("maxDet:", max_det, " ", "areagRng:", p.areagRng)
                         break
 
                     if label not in incorrect_conf_dict.keys():
                         incorrect_conf_dict[label] = fp_confidence_li
                     else:
-                        print("maxDet:", maxDet, " ", "areagRng:", p.areagRng)
+                        print("maxDet:", max_det, " ", "areagRng:", p.areagRng)
                         break
         return correct_conf_dict, incorrect_conf_dict
 
@@ -970,7 +973,8 @@ class CocoVisualUtil(CocoDraw):
         dataset_len = len(img_ids)
         for idx in range(dataset_len):
             img_id = img_ids[idx]
-            if idx == len(results): break
+            if idx == len(results):
+                break
             result = results[idx]
             for label, result_label in enumerate(result):
                 bboxes = result_label
@@ -1045,16 +1049,16 @@ class CocoVisualUtil(CocoDraw):
         return result_files
 
     def calcuate_pr_rc_f1(self, config, coco, coco_dets, tgt_ids, im_path_dir, iou_type):
-        cocoEval = DetectEval(coco, coco_dets, iou_type)
-        cocoEval.params.imgIds = tgt_ids
-        cocoEval.evaluate()
-        cocoEval.accumulate()
+        coco_eval = DetectEval(coco, coco_dets, iou_type)
+        coco_eval.params.imgIds = tgt_ids
+        coco_eval.evaluate()
+        coco_eval.accumulate()
         rdct = Redirct()
         stdout = sys.stdout
         sys.stdout = rdct
-        cocoEval.summarize()
+        coco_eval.summarize()
         sys.stdout = stdout
-        stats_all = cocoEval.stats
+        stats_all = coco_eval.stats
 
         eval_result_path = os.path.abspath("./recommend_result")
         if os.path.exists(eval_result_path):
@@ -1071,34 +1075,34 @@ class CocoVisualUtil(CocoDraw):
         self.write_list_to_csv(result_csv, [], append=True)
 
         # 1.2 plot_pr_curve
-        cocoEval.plot_pr_curve(eval_result_path)
+        coco_eval.plot_pr_curve(eval_result_path)
 
         # 2 coco.evaluate
-        E = DetectEval(coco, coco_dets, iou_type)
-        E.params.iouThrs = [0.5]
-        E.params.maxDets = [100]
-        E.params.areaRng = [[0 ** 2, 1e5 ** 2]]
-        E.evaluate()
+        det_eval = DetectEval(coco, coco_dets, iou_type)
+        det_eval.params.iouThrs = [0.5]
+        det_eval.params.maxDets = [100]
+        det_eval.params.areaRng = [[0 ** 2, 1e5 ** 2]]
+        det_eval.evaluate()
 
         # 2.1 plot hist_curve of every class's tp's confidence and fp's confidence
-        confidence_dict = E.compute_tp_fp_confidence()
-        E.plot_hist_curve(confidence_dict, eval_result_path)
+        confidence_dict = det_eval.compute_tp_fp_confidence()
+        det_eval.plot_hist_curve(confidence_dict, eval_result_path)
 
         # 2.2 write best_threshold and pr to csv and plot
-        cat_pr_dict, cat_pr_dict_origin = E.compute_precison_recall_f1()
-        best_confidence_thres = E.write_best_confidence_threshold(cat_pr_dict, cat_pr_dict_origin, eval_result_path)
+        cat_pr_dict, cat_pr_dict_origin = det_eval.compute_precison_recall_f1()
+        best_confidence_thres = det_eval.write_best_confidence_threshold(cat_pr_dict, cat_pr_dict_origin, eval_result_path)
         print("[INFO] best_confidence_thres: ", best_confidence_thres)
-        E.plot_mc_curve(cat_pr_dict, eval_result_path)
+        det_eval.plot_mc_curve(cat_pr_dict, eval_result_path)
 
         # 3
         # 3.1 compute every class's pr and save every class's p and r at iou = 0.5
-        E = DetectEval(coco, coco_dets, iouType='bbox')
-        E.params.iouThrs = [0.5]
-        E.params.maxDets = [100]
-        E.params.areaRng = [[0 ** 2, 1e5 ** 2]]
-        E.evaluate()
-        E.accumulate()
-        result = E.evaluate_every_class()
+        det_eval = DetectEval(coco, coco_dets, iou_type='bbox')
+        det_eval.params.iouThrs = [0.5]
+        det_eval.params.maxDets = [100]
+        det_eval.params.areaRng = [[0 ** 2, 1e5 ** 2]]
+        det_eval.evaluate()
+        det_eval.accumulate()
+        result = det_eval.evaluate_every_class()
         print_info = ["class_name", "tp_num", "gt_num", "dt_num", "precision", "recall"]
         self.write_list_to_csv(result_csv, print_info, append=True)
         print("class_name", "tp_num", "gt_num", "dt_num", "precision", "recall")
@@ -1107,7 +1111,7 @@ class CocoVisualUtil(CocoDraw):
             self.write_list_to_csv(result_csv, class_result, append=True)
 
         # 3.2 save ng / ok images
-        E.save_category_images(config, eval_result_path, im_path_dir, 0.5)
+        det_eval.save_category_images(config, eval_result_path, im_path_dir, 0.5)
         return stats_all[0]
 
     def coco_eval(self, config, result_files, result_types, coco, im_path_dir,

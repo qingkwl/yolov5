@@ -23,16 +23,11 @@ class MindXModel(ModelBase):
         self.model_path = model_path
         self.device_id = device_id
 
-        self._init_model()
         from mindx.sdk import base, Tensor
         self.base = base
         self.tensor = Tensor
 
-    def _init_model(self):
-        self.base.mx_init()
-        self.model = self.base.model(self.model_path, self.device_id)
-        if not self.model:
-            raise ValueError(f"The model file {self.model_path} load failed.")
+        self._init_model()
 
     def infer(self, x):
         inputs = self.tensor(x)
@@ -40,3 +35,9 @@ class MindXModel(ModelBase):
         list([output.to_host() for output in outputs])
         outputs = [np.array(output) for output in outputs]
         return outputs
+
+    def _init_model(self):
+        self.base.mx_init()
+        self.model = self.base.model(self.model_path, self.device_id)
+        if not self.model:
+            raise ValueError(f"The model file {self.model_path} load failed.")

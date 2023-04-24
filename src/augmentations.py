@@ -31,7 +31,7 @@ class Albumentations:
         try:
             import albumentations as A
             check_version(A.__version__, '1.0.3', hard=True)  # version requirement
-            T = [
+            pipeline = [
                 A.RandomResizedCrop(height=size, width=size, scale=(0.8, 1.0), ratio=(0.9, 1.11), p=0.0),
                 A.Blur(p=0.01),
                 A.MedianBlur(p=0.01),
@@ -39,10 +39,11 @@ class Albumentations:
                 A.CLAHE(p=0.01),
                 A.RandomBrightnessContrast(p=0.0),
                 A.RandomGamma(p=0.0),
-                A.ImageCompression(quality_lower=75, p=0.0)]  # transforms
-            self.transform = A.Compose(T, bbox_params=A.BboxParams(format='yolo', label_fields=['class_labels']))
+                A.ImageCompression(quality_lower=75, p=0.0)
+            ]  # transforms
+            self.transform = A.Compose(pipeline, bbox_params=A.BboxParams(format='yolo', label_fields=['class_labels']))
 
-            LOGGER.info(prefix + ', '.join(f'{x}'.replace('always_apply=False, ', '') for x in T if x.p))
+            LOGGER.info(prefix + ', '.join(f'{x}'.replace('always_apply=False, ', '') for x in pipeline if x.p))
             LOGGER.info("albumentations load success")
         except ImportError:  # package not installed, skip
             LOGGER.exception("package not installed, albumentations load failed")
@@ -100,38 +101,38 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
     width = img.shape[1] + border[1] * 2
 
     # Center
-    C = np.eye(3)
-    C[0, 2] = -img.shape[1] / 2  # x translation (pixels)
-    C[1, 2] = -img.shape[0] / 2  # y translation (pixels)
+    center = np.eye(3)
+    center[0, 2] = -img.shape[1] / 2  # x translation (pixels)
+    center[1, 2] = -img.shape[0] / 2  # y translation (pixels)
 
     # Perspective
-    P = np.eye(3)
-    P[2, 0] = random.uniform(-perspective, perspective)  # x perspective (about y)
-    P[2, 1] = random.uniform(-perspective, perspective)  # y perspective (about x)
+    perspective = np.eye(3)
+    perspective[2, 0] = random.uniform(-perspective, perspective)  # x perspective (about y)
+    perspective[2, 1] = random.uniform(-perspective, perspective)  # y perspective (about x)
 
     # Rotation and Scale
-    R = np.eye(3)
+    rotation = np.eye(3)
     a = random.uniform(-degrees, degrees)
     s = random.uniform(1 - scale, 1 + scale)
-    R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
+    rotation[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
 
     # Shear
-    S = np.eye(3)
-    S[0, 1] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # x shear (deg)
-    S[1, 0] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # y shear (deg)
+    shear = np.eye(3)
+    shear[0, 1] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # x shear (deg)
+    shear[1, 0] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # y shear (deg)
 
     # Translation
-    T = np.eye(3)
-    T[0, 2] = random.uniform(0.5 - translate, 0.5 + translate) * width  # x translation (pixels)
-    T[1, 2] = random.uniform(0.5 - translate, 0.5 + translate) * height  # y translation (pixels)
+    translation = np.eye(3)
+    translation[0, 2] = random.uniform(0.5 - translate, 0.5 + translate) * width  # x translation (pixels)
+    translation[1, 2] = random.uniform(0.5 - translate, 0.5 + translate) * height  # y translation (pixels)
 
     # Combined rotation matrix
-    M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT
-    if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
+    matrix = translation @ shear @ rotation @ perspective @ center  # order of operations (right to left) is IMPORTANT
+    if (border[0] != 0) or (border[1] != 0) or (matrix != np.eye(3)).any():  # image changed
         if perspective:
-            img = cv2.warpPerspective(img, M, dsize=(width, height), borderValue=(114, 114, 114))
+            img = cv2.warpPerspective(img, matrix, dsize=(width, height), borderValue=(114, 114, 114))
         else:  # affine
-            img = cv2.warpAffine(img, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
+            img = cv2.warpAffine(img, matrix[:2], dsize=(width, height), borderValue=(114, 114, 114))
 
     # Transform label coordinates
     n = len(targets)
@@ -143,7 +144,7 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
             for i, segment in enumerate(segments):
                 xy = np.ones((len(segment), 3))
                 xy[:, :2] = segment
-                xy = xy @ M.T  # transform
+                xy = xy @ matrix.T  # transform
                 xy = xy[:, :2] / xy[:, 2:3] if perspective else xy[:, :2]  # perspective rescale or affine
 
                 # clip
@@ -152,7 +153,7 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
         else:  # warp boxes
             xy = np.ones((n * 4, 3))
             xy[:, :2] = targets[:, [1, 2, 3, 4, 1, 4, 3, 2]].reshape(n * 4, 2)  # x1y1, x2y2, x1y2, x2y1
-            xy = xy @ M.T  # transform
+            xy = xy @ matrix.T  # transform
             xy = (xy[:, :2] / xy[:, 2:3] if perspective else xy[:, :2]).reshape(n, 8)  # perspective rescale or affine
 
             # create new boxes
@@ -237,7 +238,7 @@ def load_samples(self, index):
     return sample_labels, sample_images, sample_masks
 
 
-def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
+def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scale_fill=False, scaleup=True, stride=32):
     # Resize and pad image while meeting stride-multiple constraints
     shape = img.shape[:2]  # current shape [height, width]
     if isinstance(new_shape, int):
@@ -254,7 +255,7 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scale
     dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
     if auto:  # minimum rectangle
         dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
-    elif scaleFill:  # stretch
+    elif scale_fill:  # stretch
         dw, dh = 0.0, 0.0
         new_unpad = (new_shape[1], new_shape[0])
         ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios

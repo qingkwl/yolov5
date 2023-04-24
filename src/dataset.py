@@ -62,7 +62,7 @@ def exif_size(img):
     # Returns exif-corrected PIL size
     s = img.size  # (width, height)
     try:
-        rotation = dict(img._getexif().items())[orientation]
+        rotation = dict(img.getexif().items())[orientation]
         if rotation == 6:  # rotation 270
             s = (s[1], s[0])
         elif rotation == 8:  # rotation 90
@@ -293,6 +293,134 @@ class LoadImagesAndLabels:  # for training/testing
                 pbar.desc = f'{prefix}Caching images ({b / gb:.1f}GB {cache_images})'
             pbar.close()
 
+    def __len__(self):
+        return len(self.img_files)
+
+    def __getitem__(self, index):
+        index = self.indices[index]  # linear, shuffled, or image_weights
+
+        hyp = self.hyp
+        mosaic = self.mosaic and random.random() < hyp['mosaic']
+        if mosaic:
+            # Load mosaic
+            img, labels = self.load_mosaic(index)
+            shapes = np.zeros((3, 2))
+
+            # MixUp https://arxiv.org/pdf/1710.09412.pdf
+            if random.random() < hyp['mixup']:
+                img, labels = mixup(img, labels, * self.load_mosaic(random.randint(0, self.n - 1)))
+
+        else:
+            # Load image
+            img, (h0, w0), (h, w) = load_image(self, index)
+
+            # Letterbox
+            shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
+            img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
+            shapes = np.array([[h0, w0],
+                               [h / h0, w / w0],
+                               [pad[0], pad[1]]])  # (3, 2), for COCO mAP rescaling
+
+            labels = self.labels[index].copy()
+            if labels.size:  # normalized xywh to pixel xyxy format
+                labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
+
+            if self.augment:
+                img, labels = random_perspective(img,
+                                                 labels,
+                                                 degrees=hyp['degrees'],
+                                                 translate=hyp['translate'],
+                                                 scale=hyp['scale'],
+                                                 shear=hyp['shear'],
+                                                 perspective=hyp['perspective'])
+
+        num_labels = len(labels)  # number of labels
+        if num_labels:
+            labels[:, 1:5] = xyxy2xywhn(labels[:, 1:5], w=img.shape[1], h=img.shape[0], clip=True, eps=1E-3)
+
+        if self.augment:
+            # Augment imagespace
+            img, labels = self.albumentations(img, labels)
+            num_labels = len(labels)  # number of labels
+
+            # Augment colorspace
+            augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
+
+            # Flip up-down
+            if random.random() < hyp['flipud']:
+                img = np.flipud(img)
+                if num_labels:
+                    labels[:, 2] = 1 - labels[:, 2]
+
+            # Flip left-right
+            if random.random() < hyp['fliplr']:
+                img = np.fliplr(img)
+                if num_labels:
+                    labels[:, 1] = 1 - labels[:, 1]
+
+            if random.random() < hyp['paste_in']:
+                sample_labels, sample_images, sample_masks = [], [], []
+                while len(sample_labels) < 30:
+                    sample_labels_, sample_images_, sample_masks_ = \
+                        load_samples(self, random.randint(0, len(self.labels) - 1))
+                    sample_labels += sample_labels_
+                    sample_images += sample_images_
+                    sample_masks += sample_masks_
+                    if empty(sample_labels):
+                        break
+                labels = pastein(img, labels, sample_labels, sample_images, sample_masks)
+
+        _labels_out = np.zeros((num_labels, 6))
+        if num_labels:
+            _labels_out[:, 1:] = labels
+
+        # create fixed label, avoid dynamic shape problem.
+        labels_out = np.full((self.max_box_per_img, 6), -1, dtype=np.float32)
+        if num_labels:
+            labels_out[:min(num_labels, self.max_box_per_img), :] = _labels_out[:min(num_labels, self.max_box_per_img), :]
+
+        # Convert
+        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+        img = np.ascontiguousarray(img)
+
+        return img, labels_out, self.img_files[index], shapes
+
+    @staticmethod
+    def collate_fn(img, label, path, shapes, batch_info):
+        for i, l in enumerate(label):
+            l[:, 0] = i  # add target image index for build_targets()
+        return np.stack(img, 0).astype(np.float32), np.stack(label, 0).astype(np.float32), path, np.stack(shapes, 0)
+
+    @staticmethod
+    def collate_fn4(img, label, path, shapes, batch_info):
+        n = len(img) // 4
+        img4, label4, path4, _ = [], [], path[:n], shapes[:n]
+
+        ho = np.array([[0., 0, 0, 1, 0, 0]])
+        wo = np.array([[0., 0, 1, 0, 0, 0]])
+        s = np.array([[1, 1, .5, .5, .5, .5]])  # scale
+        for i in range(n):  # zidane torch.zeros(16,3,720,1280)  # BCHW
+            i *= 4
+            if random.random() < 0.5:
+
+                _resize_shape = (img[i].shape[1] * 2, img[i].shape[2] * 2)
+                # (c,h,w) -> (h,w,c) -> (c,h,w)
+                im = vision.Resize(_resize_shape, Inter.BILINEAR)(img[i].transpose(1, 2, 0)).transpose(2, 0, 1)
+                # im = F.interpolate(img[i].unsqueeze(0).float(), scale_factor=2., mode='bilinear',
+                #      align_corners=False)[0].type(img[i].type())
+                l = label[i]
+            else:
+                im = np.concatenate((np.concatenate((img[i], img[i + 1]), 1),
+                                     np.concatenate((img[i + 2], img[i + 3]), 1)), 2)
+                l = np.concatenate((label[i], label[i + 1] + ho, label[i + 2] + wo, label[i + 3] + ho + wo), 0) * s
+            img4.append(im)
+            label4.append(l)
+
+        for i, l in enumerate(label4):
+            l[:, 0] = i  # add target image index for build_targets()
+
+        return np.stack(img4, 0).astype(np.float32), np.stack(label4, 0).astype(np.float32), path4
+
     def check_cache_ram(self, safety_margin=0.1, prefix=''):
         # Check image caching requirements vs available memory
         b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
@@ -348,98 +476,6 @@ class LoadImagesAndLabels:  # for training/testing
             print(f'{prefix}WARNING ⚠️ Cache directory {path.parent} is not writeable: {e}',
                   flush=True)  # not writeable
         return x
-
-    def __len__(self):
-        return len(self.img_files)
-
-    def __getitem__(self, index):
-        index = self.indices[index]  # linear, shuffled, or image_weights
-
-        hyp = self.hyp
-        mosaic = self.mosaic and random.random() < hyp['mosaic']
-        if mosaic:
-            # Load mosaic
-            img, labels = self.load_mosaic(index)
-            shapes = np.zeros((3, 2))
-
-            # MixUp https://arxiv.org/pdf/1710.09412.pdf
-            if random.random() < hyp['mixup']:
-                img, labels = mixup(img, labels, * self.load_mosaic(random.randint(0, self.n - 1)))
-
-        else:
-            # Load image
-            img, (h0, w0), (h, w) = load_image(self, index)
-
-            # Letterbox
-            shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
-            img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
-            shapes = np.array([[h0, w0],
-                               [h / h0, w / w0],
-                               [pad[0], pad[1]]])  # (3, 2), for COCO mAP rescaling
-
-            labels = self.labels[index].copy()
-            if labels.size:  # normalized xywh to pixel xyxy format
-                labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
-
-            if self.augment:
-                img, labels = random_perspective(img,
-                                                 labels,
-                                                 degrees=hyp['degrees'],
-                                                 translate=hyp['translate'],
-                                                 scale=hyp['scale'],
-                                                 shear=hyp['shear'],
-                                                 perspective=hyp['perspective'])
-
-        nL = len(labels)  # number of labels
-        if nL:
-            labels[:, 1:5] = xyxy2xywhn(labels[:, 1:5], w=img.shape[1], h=img.shape[0], clip=True, eps=1E-3)
-
-        if self.augment:
-            # Augment imagespace
-            img, labels = self.albumentations(img, labels)
-            nL = len(labels)  # number of labels
-
-            # Augment colorspace
-            augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
-
-            # Flip up-down
-            if random.random() < hyp['flipud']:
-                img = np.flipud(img)
-                if nL:
-                    labels[:, 2] = 1 - labels[:, 2]
-
-            # Flip left-right
-            if random.random() < hyp['fliplr']:
-                img = np.fliplr(img)
-                if nL:
-                    labels[:, 1] = 1 - labels[:, 1]
-
-            if random.random() < hyp['paste_in']:
-                sample_labels, sample_images, sample_masks = [], [], []
-                while len(sample_labels) < 30:
-                    sample_labels_, sample_images_, sample_masks_ = \
-                        load_samples(self, random.randint(0, len(self.labels) - 1))
-                    sample_labels += sample_labels_
-                    sample_images += sample_images_
-                    sample_masks += sample_masks_
-                    if empty(sample_labels):
-                        break
-                labels = pastein(img, labels, sample_labels, sample_images, sample_masks)
-
-        _labels_out = np.zeros((nL, 6))
-        if nL:
-            _labels_out[:, 1:] = labels
-
-        # create fixed label, avoid dynamic shape problem.
-        labels_out = np.full((self.max_box_per_img, 6), -1, dtype=np.float32)
-        if nL:
-            labels_out[:min(nL, self.max_box_per_img), :] = _labels_out[:min(nL, self.max_box_per_img), :]
-
-        # Convert
-        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
-        img = np.ascontiguousarray(img)
-
-        return img, labels_out, self.img_files[index], shapes
 
     def load_image(self, i):
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
@@ -596,42 +632,6 @@ class LoadImagesAndLabels:  # for training/testing
                                            border=self.mosaic_border)  # border to remove
 
         return img9, labels9
-
-    @staticmethod
-    def collate_fn(img, label, path, shapes, batch_info):
-        for i, l in enumerate(label):
-            l[:, 0] = i  # add target image index for build_targets()
-        return np.stack(img, 0).astype(np.float32), np.stack(label, 0).astype(np.float32), path, np.stack(shapes, 0)
-
-    @staticmethod
-    def collate_fn4(img, label, path, shapes, batch_info):
-        n = len(img) // 4
-        img4, label4, path4, _ = [], [], path[:n], shapes[:n]
-
-        ho = np.array([[0., 0, 0, 1, 0, 0]])
-        wo = np.array([[0., 0, 1, 0, 0, 0]])
-        s = np.array([[1, 1, .5, .5, .5, .5]])  # scale
-        for i in range(n):  # zidane torch.zeros(16,3,720,1280)  # BCHW
-            i *= 4
-            if random.random() < 0.5:
-
-                _resize_shape = (img[i].shape[1] * 2, img[i].shape[2] * 2)
-                # (c,h,w) -> (h,w,c) -> (c,h,w)
-                im = vision.Resize(_resize_shape, Inter.BILINEAR)(img[i].transpose(1, 2, 0)).transpose(2, 0, 1)
-                # im = F.interpolate(img[i].unsqueeze(0).float(), scale_factor=2., mode='bilinear',
-                #      align_corners=False)[0].type(img[i].type())
-                l = label[i]
-            else:
-                im = np.concatenate((np.concatenate((img[i], img[i + 1]), 1),
-                                     np.concatenate((img[i + 2], img[i + 3]), 1)), 2)
-                l = np.concatenate((label[i], label[i + 1] + ho, label[i + 2] + wo, label[i + 3] + ho + wo), 0) * s
-            img4.append(im)
-            label4.append(l)
-
-        for i, l in enumerate(label4):
-            l[:, 0] = i  # add target image index for build_targets()
-
-        return np.stack(img4, 0).astype(np.float32), np.stack(label4, 0).astype(np.float32), path4
 
 
 def create_dataloader(path, imgsz, batch_size, stride, opt, epoch_size=300, hyp=None,

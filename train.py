@@ -54,8 +54,9 @@ def set_seed(seed=2):
 
 # ----------------------------------------------------------------------------------------------------
 def detect_overflow(epoch, cur_step, grads):
-    for i in range(len(grads)):
-        tmp = grads[i].asnumpy()
+    # for i in range(len(grads)):
+    for i, grad in enumerate(grads):
+        tmp = grad.asnumpy()
         if np.isinf(tmp).any() or np.isnan(tmp).any():
             print(f"grad_{i}", flush=True)
             print(f"Epoch: {epoch}, Step: {cur_step} grad_{i} overflow, this step drop. ", flush=True)
@@ -190,6 +191,14 @@ class TrainManager:
         self.data_cfg = None
         self.weight_dir = os.path.join(self.opt.save_dir, "weights")
 
+    @staticmethod
+    def _write_map_result(coco_result, map_str_path, names):
+        with os.fdopen(os.open(map_str_path, WRITE_FLAGS, FILE_MODE), 'w') as file:
+            file.write(f"COCO API:\n{coco_result.stats_str}\n")
+            if coco_result.category_stats_strs is not None:
+                for idx, category_str in enumerate(coco_result.category_stats_strs):
+                    file.write(f"\nclass {names[idx]}:\n{category_str}\n")
+
     def train(self):
         set_seed()
         opt = self.opt
@@ -286,22 +295,6 @@ class TrainManager:
                 self.run_eval(cur_epoch, ema, infer_model, model, steps_per_epoch, summary_record, val_dataloader,
                               val_dataset)
         return 0
-
-    def _configure_model_params(self, dataset, imgsz, model, nl):
-        hyp = self.hyp
-        opt = self.opt
-        num_cls = self.data_cfg['nc']
-        cls_names = self.data_cfg['names']
-        hyp['box'] *= 3. / nl  # scale to layers
-        hyp['cls'] *= num_cls / 80. * 3. / nl  # scale to classes and layers
-        hyp['obj'] *= (imgsz / 640) ** 2 * 3. / nl  # scale to image size and layers
-        hyp['label_smoothing'] = opt.label_smoothing
-        model.nc = num_cls  # attach number of classes to model
-        model.hyp = hyp  # attach hyperparameters to model
-        model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
-        model.class_weights = Tensor(labels_to_class_weights(dataset.labels, num_cls) * num_cls)  # attach class weights
-        model.names = cls_names
-        return model
 
     def dump_cfg(self):
         if self.opt.rank != 0:
@@ -429,14 +422,6 @@ class TrainManager:
                 self._modelarts_sync(ema_ckpt_path,
                                      opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
 
-    @staticmethod
-    def _write_map_result(coco_result, map_str_path, names):
-        with os.fdopen(os.open(map_str_path, WRITE_FLAGS, FILE_MODE), 'w') as file:
-            file.write(f"COCO API:\n{coco_result.stats_str}\n")
-            if coco_result.category_stats_strs is not None:
-                for idx, category_str in enumerate(coco_result.category_stats_strs):
-                    file.write(f"\nclass {names[idx]}:\n{category_str}\n")
-
     def get_train_step(self, compute_loss, ema, model, optimizer, gs, imgsz):
         if self.opt.ms_strategy == "StaticShape":
             train_step = create_train_network(model, compute_loss, ema, optimizer,
@@ -499,6 +484,22 @@ class TrainManager:
         from src.modelarts import sync_data
         os.makedirs(dst_dir, exist_ok=True)
         sync_data(src_dir, dst_dir)
+
+    def _configure_model_params(self, dataset, imgsz, model, nl):
+        hyp = self.hyp
+        opt = self.opt
+        num_cls = self.data_cfg['nc']
+        cls_names = self.data_cfg['names']
+        hyp['box'] *= 3. / nl  # scale to layers
+        hyp['cls'] *= num_cls / 80. * 3. / nl  # scale to classes and layers
+        hyp['obj'] *= (imgsz / 640) ** 2 * 3. / nl  # scale to image size and layers
+        hyp['label_smoothing'] = opt.label_smoothing
+        model.nc = num_cls  # attach number of classes to model
+        model.hyp = hyp  # attach hyperparameters to model
+        model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
+        model.class_weights = Tensor(labels_to_class_weights(dataset.labels, num_cls) * num_cls)  # attach class weights
+        model.names = cls_names
+        return model
 
 
 def main():
