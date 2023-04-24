@@ -28,14 +28,14 @@ class Argument:
 
 class Parser(ArgumentParser):
     def __init__(self, *args, **kwargs):
-        # ArgumentParser.__init__(self, *args, **kwargs)
         self.arguments = []
-        super(Parser, self).__init__(*args, **kwargs)
+        # super(Parser, self).__init__(*args, **kwargs)
+        ArgumentParser.__init__(self, *args, **kwargs)
 
     def add_argument(self, *args, **kwargs):
         self.arguments.append(Argument(*args, **kwargs))
-        # ArgumentParser.add_argument(self, *args, **kwargs)
-        super(Parser, self).add_argument(*args, **kwargs)
+        ArgumentParser.add_argument(self, *args, **kwargs)
+        # super(Parser, self).add_argument(*args, **kwargs)
 
     def copy_arg(self, arg: Argument):
         self.add_argument(*arg.args, **arg.kwargs)

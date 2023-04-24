@@ -180,20 +180,20 @@ class LoadImagesAndLabels:  # for training/testing
                         # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
                 else:
                     raise FileNotFoundError(f'{prefix}{p} does not exist')
-            self.im_files = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
+            self.img_files = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
             # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
-            assert self.im_files, f'{prefix}No images found'
+            assert self.img_files, f'{prefix}No images found'
         except Exception as e:
             raise Exception(f'{prefix}Error loading data from {path}: {e}\n{HELP_URL}') from e
 
         # Check cache
-        self.label_files = img2label_paths(self.im_files)  # labels
+        self.label_files = img2label_paths(self.img_files)  # labels
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
         try:
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
             try:
                 assert cache['version'] == self.cache_version  # matches current version
-                assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
+                assert cache['hash'] == get_hash(self.label_files + self.img_files)  # identical hash
             except Exception as e:
                 exit(f"[ERROR] {e}, please remove cache file in dataset path: rm -f {Path(self.path).parent}/*.cache*")
         except Exception:
@@ -218,14 +218,14 @@ class LoadImagesAndLabels:  # for training/testing
         assert nl > 0 or not augment, f'{prefix}All labels empty in {cache_path}, can not start training. {HELP_URL}'
         self.labels = list(labels)
         self.shapes = np.array(shapes)
-        self.im_files = list(cache.keys())  # update
+        self.img_files = list(cache.keys())  # update
         self.label_files = img2label_paths(cache.keys())  # update
 
         # Filter images
         if min_items:
             include = np.array([len(x) >= min_items for x in self.labels]).nonzero()[0].astype(int)
             print(f'{prefix}{n - len(include)}/{n} images filtered from dataset', flush=True)
-            self.im_files = [self.im_files[i] for i in include]
+            self.img_files = [self.img_files[i] for i in include]
             self.label_files = [self.label_files[i] for i in include]
             self.labels = [self.labels[i] for i in include]
             self.segments = [self.segments[i] for i in include]
@@ -257,7 +257,7 @@ class LoadImagesAndLabels:  # for training/testing
             s = self.shapes  # wh
             ar = s[:, 1] / s[:, 0]  # aspect ratio
             irect = ar.argsort()
-            self.im_files = [self.im_files[i] for i in irect]
+            self.img_files = [self.img_files[i] for i in irect]
             self.label_files = [self.label_files[i] for i in irect]
             self.labels = [self.labels[i] for i in irect]
             self.segments = [self.segments[i] for i in irect]
@@ -280,7 +280,7 @@ class LoadImagesAndLabels:  # for training/testing
         if cache_images == 'ram' and not self.check_cache_ram(prefix=prefix):
             cache_images = False
         self.ims = [None] * n
-        self.npy_files = [Path(f).with_suffix('.npy') for f in self.im_files]
+        self.npy_files = [Path(f).with_suffix('.npy') for f in self.img_files]
         if cache_images:
             b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
             self.im_hw0, self.im_hw = [None] * n, [None] * n
@@ -301,7 +301,7 @@ class LoadImagesAndLabels:  # for training/testing
         b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
         n = min(self.n, 30)  # extrapolate from 30 random images
         for _ in range(n):
-            im = cv2.imread(random.choice(self.im_files))  # sample image
+            im = cv2.imread(random.choice(self.img_files))  # sample image
             ratio = self.img_size / max(im.shape[0], im.shape[1])  # max(h, w)  # ratio
             b += im.nbytes * ratio ** 2
         mem_required = b * self.n / n  # GB required to cache dataset into RAM
@@ -319,9 +319,9 @@ class LoadImagesAndLabels:  # for training/testing
         nm, nf, ne, nc, msgs = 0, 0, 0, 0, []  # number missing, found, empty, corrupt, messages
         desc = f"{prefix}Scanning {path.parent / path.stem}..."
         with Pool(NUM_THREADS) as pool:
-            pbar = tqdm(pool.imap(verify_image_label, zip(self.im_files, self.label_files, repeat(prefix))),
+            pbar = tqdm(pool.imap(verify_image_label, zip(self.img_files, self.label_files, repeat(prefix))),
                         desc=desc,
-                        total=len(self.im_files),
+                        total=len(self.img_files),
                         bar_format=TQDM_BAR_FORMAT)
             for im_file, lb, shape, segments, nm_f, nf_f, ne_f, nc_f, msg in pbar:
                 nm += nm_f
@@ -339,8 +339,8 @@ class LoadImagesAndLabels:  # for training/testing
             print('\n'.join(msgs), flush=True)
         if nf == 0:
             print(f'{prefix}WARNING ⚠️ No labels found in {path}. {HELP_URL}', flush=True)
-        x['hash'] = get_hash(self.label_files + self.im_files)
-        x['results'] = nf, nm, ne, nc, len(self.im_files)
+        x['hash'] = get_hash(self.label_files + self.img_files)
+        x['results'] = nf, nm, ne, nc, len(self.img_files)
         x['msgs'] = msgs  # warnings
         x['version'] = self.cache_version  # cache version
         try:
@@ -353,7 +353,7 @@ class LoadImagesAndLabels:  # for training/testing
         return x
 
     def __len__(self):
-        return len(self.im_files)
+        return len(self.img_files)
 
     # def __iter__(self):
     #     self.count = -1
@@ -453,11 +453,11 @@ class LoadImagesAndLabels:  # for training/testing
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
         img = np.ascontiguousarray(img)
 
-        return img, labels_out, self.im_files[index], shapes
+        return img, labels_out, self.img_files[index], shapes
 
     def load_image(self, i):
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
-        im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i]
+        im, f, fn = self.ims[i], self.img_files[i], self.npy_files[i]
         if im is None:  # not cached in RAM
             if fn.exists():  # load npy
                 im = np.load(fn)
@@ -476,7 +476,7 @@ class LoadImagesAndLabels:  # for training/testing
         # Saves an image as an *.npy file for faster loading
         f = self.npy_files[i]
         if not f.exists():
-            np.save(f.as_posix(), cv2.imread(self.im_files[i]))
+            np.save(f.as_posix(), cv2.imread(self.img_files[i]))
 
     def load_mosaic(self, index):
         # YOLOv5 4-mosaic loader. Loads 1 image + 3 random images into a 4-image mosaic

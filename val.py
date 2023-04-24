@@ -37,7 +37,7 @@ from src.general import LOGGER, AllReduce, empty
 from src.general import COCOEval as COCOeval
 from src.general import (Synchronize, SynchronizeManager, box_iou, check_file,
                          check_img_size, coco80_to_coco91_class, colorstr,
-                         increment_path, xywh2xyxy, xyxy2xywh)
+                         increment_path, xywh2xyxy, xyxy2xywh, WRITE_FLAGS, READ_FLAGS, FILE_MODE)
 from src.metrics import (ConfusionMatrix, ap_per_class, non_max_suppression,
                          scale_coords)
 from src.network.yolo import Model
@@ -304,12 +304,13 @@ class EvalManager:
         for *xyxy, conf, cls in pred.tolist():
             xywh = (xyxy2xywh(np.array(xyxy).reshape(1, 4)) / gn).reshape(-1).tolist()  # normalized xywh
             line = (cls, *xywh, conf) if self.opt.save_conf else (cls, *xywh)  # label format
-            with open(file_path, 'a') as f:
+            with os.fdopen(os.open(file_path, WRITE_FLAGS, FILE_MODE), 'a') as f:
                 f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
     def _write_json_list(self, pred, pred_json, path):
         # Save one JSON result
-        # example: {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
+        # >> example:
+        # >> {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
         path = Path(path)
         image_id = int(path.stem) if path.stem.isnumeric() else path.stem
         box = xyxy2xywh(pred[:, :4])  # xywh
@@ -358,7 +359,7 @@ class EvalManager:
                 correct = process_batch(pred_copy, labelsn, iou_vec)
                 if self.opt.plots:
                     self.confusion_matrix.process_batch(pred_copy, labelsn)
-            # (correct, conf, pred_cls, target_cls)
+            # correct, conf, pred_cls, target_cls
             metric_stats.pred_stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))
 
             # Save/log
@@ -479,7 +480,7 @@ class EvalManager:
         return pred_stats
 
     def save_json(self, pred_json, save_path):
-        with open(save_path, 'w') as file:
+        with os.fdopen(os.open(save_path, WRITE_FLAGS, FILE_MODE), 'w') as file:
             json.dump(pred_json, file)
 
     def save_map(self, coco_result):
@@ -487,7 +488,7 @@ class EvalManager:
         s = f"\n{len(glob.glob(os.path.join(self.save_dir, 'labels/*.txt')))} labels saved to " \
             f"{os.path.join(self.save_dir, 'labels')}" if self.opt.save_txt else ''
         LOGGER.info(f"Results saved to {self.save_dir}, {s}")
-        with open("class_map.txt", "w") as file:
+        with os.fdopen(os.open("class_map.txt", WRITE_FLAGS, FILE_MODE), "w") as file:
             file.write(f"COCO map:\n{coco_result.stats_str}\n")
             if coco_result.category_stats_strs:
                 for idx, category_str in enumerate(coco_result.category_stats_strs):
@@ -515,7 +516,7 @@ class EvalManager:
             LOGGER.info(f"Merge {json_file.resolve()}")
             with open(json_file, "r") as file_handler:
                 merged_result.extend(json.load(file_handler))
-        with open(merged_json, "w") as file_handler:
+        with os.fdopen(os.open(merged_json, WRITE_FLAGS, FILE_MODE), "w") as file_handler:
             json.dump(merged_result, file_handler)
         LOGGER.info(f"Merged results saved in {merged_json}.")
         return merged_json, merged_result
@@ -526,7 +527,7 @@ class EvalManager:
         pred = anno.loadRes(pred_json)  # init predictions api
         eval_result = COCOeval(anno, pred, 'bbox')
         if self.is_coco and dataset is not None:
-            eval_result.params.imgIds = [int(Path(x).stem) for x in dataset.im_files]  # image IDs to evaluate
+            eval_result.params.imgIds = [int(Path(x).stem) for x in dataset.img_files]  # image IDs to evaluate
         eval_result.evaluate()
         eval_result.accumulate()
         eval_result.summarize(categoryIds=-1)
@@ -544,11 +545,10 @@ class EvalManager:
         data_dir = Path(dataset_cfg["val"]).parent
         img_path_name = os.path.splitext(os.path.basename(dataset_cfg["val"]))[0]
         im_path_dir = os.path.join(data_dir, "images", img_path_name)
-        config = Dict(config)
         with open(pred_json_path, 'r') as f:
             result = json.load(f)
         result_files = coco_visual.results2json(dataset_coco, result, "./results.pkl")
-        coco_visual.coco_eval(config, result_files, eval_types, dataset_coco, im_path_dir=im_path_dir,
+        coco_visual.coco_eval(Dict(config), result_files, eval_types, dataset_coco, im_path_dir=im_path_dir,
                               score_threshold=None,
                               recommend_threshold=self.opt.recommend_threshold)
 
@@ -650,7 +650,6 @@ def main():
 
     ms_mode = ms.GRAPH_MODE if opt.ms_mode == "graph" else ms.PYNATIVE_MODE
     ms.set_context(mode=ms.PYNATIVE_MODE, device_target=opt.device_target)
-    # ms.set_context(pynative_synchronize=True)
     context.set_context(mode=ms_mode, device_target=opt.device_target)
     if opt.device_target == "Ascend":
         device_id = int(os.getenv('DEVICE_ID', '0'))

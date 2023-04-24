@@ -28,7 +28,6 @@ def ms2pt(src_ckpt_path):
     ms_params = load_checkpoint(src_ckpt_path)
     new_params = defaultdict()
     for k, v in ms_params.items():
-        # k_backup = k
         elem_list = k.split('.')
         if len(elem_list) <= 1:
             print("k", k)

@@ -19,6 +19,7 @@ import glob
 import math
 import os
 import re
+import stat
 import threading
 import time
 from pathlib import Path
@@ -42,6 +43,11 @@ try:
 except ImportError:
     LOGGER.exception("Third party coco eval api import failed, use default api.")
     from pycocotools.cocoeval import COCOeval
+
+
+WRITE_FLAGS = os.O_WRONLY | os.O_CREAT    # Default write flags
+READ_FLAGS = os.O_RDONLY    # Default read flags
+FILE_MODE = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP   # Default file authority mode
 
 
 def check_version(current='0.0.0', minimum='0.0.0', name='version ', pinned=False, hard=False, verbose=False):

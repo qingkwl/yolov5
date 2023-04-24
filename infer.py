@@ -26,7 +26,7 @@ from config.args import get_args_infer
 from deploy.infer_engine.mindx import MindXModel
 from src.dataset import create_dataloader
 from src.general import COCOEval as COCOeval
-from src.general import LOGGER, coco80_to_coco91_class, xyxy2xywh, empty
+from src.general import LOGGER, coco80_to_coco91_class, xyxy2xywh, empty, WRITE_FLAGS, FILE_MODE
 from src.metrics import non_max_suppression, scale_coords
 
 # python infer.py --
@@ -133,7 +133,7 @@ def infer(opt):
     # Save predictions json
     if not os.path.exists(opt.output_dir):
         os.mkdir(opt.output_dir)
-    with open(os.path.join(opt.output_dir, 'predictions.json'), 'w') as file:
+    with os.fdopen(os.open(os.path.join(opt.output_dir, 'predictions.json'), WRITE_FLAGS, FILE_MODE), 'w') as file:
         json.dump(result_dicts, file)
 
     # Compute mAP
@@ -142,8 +142,7 @@ def infer(opt):
         pred = anno.loadRes(result_dicts)  # init predictions api
         coco_eval = COCOeval(anno, pred, 'bbox')
         if is_coco_dataset:
-            # eval.params.imgIds = [int(Path(im_file).stem) for im_file in val_dataset.img_files]
-            coco_eval.params.imgIds = [int(Path(im_file).stem) for im_file in val_dataset.im_files]
+            coco_eval.params.imgIds = [int(Path(im_file).stem) for im_file in val_dataset.img_files]
         coco_eval.evaluate()
         coco_eval.accumulate()
         coco_eval.summarize()

@@ -38,7 +38,8 @@ from val import EvalManager
 from src.boost import build_train_network
 from src.dataset import create_dataloader
 from src.general import (check_file, check_img_size, colorstr, increment_path,
-                         labels_to_class_weights, LOGGER, process_dataset_cfg, empty)
+                         labels_to_class_weights, LOGGER, process_dataset_cfg, empty,
+                         WRITE_FLAGS, READ_FLAGS, FILE_MODE)
 from src.network.common import EMA
 from src.network.loss import ComputeLoss
 from src.network.yolo import Model
@@ -306,9 +307,11 @@ class TrainManager:
         if self.opt.rank != 0:
             return
         save_dir = self.opt.save_dir
-        with open(os.path.join(save_dir, "hyp.yaml"), 'w') as f:
+        # with open(os.path.join(save_dir, "hyp.yaml"), 'w') as f:
+        with os.fdopen(os.open(os.path.join(save_dir, "hyp.yaml"), WRITE_FLAGS, FILE_MODE), 'w') as f:
             yaml.dump(self.hyp, f, sort_keys=False)
-        with open(os.path.join(save_dir, "opt.yaml"), 'w') as f:
+        # with open(os.path.join(save_dir, "opt.yaml"), 'w') as f:
+        with os.fdopen(os.open(os.path.join(save_dir, "opt.yaml"), WRITE_FLAGS, FILE_MODE), 'w') as f:
             yaml.dump(vars(self.opt), f, sort_keys=False)
 
     def run_eval(self, cur_epoch, ema, infer_model, model, steps_per_epoch, summary_record, val_dataloader,
@@ -428,7 +431,7 @@ class TrainManager:
 
     @staticmethod
     def _write_map_result(coco_result, map_str_path, names):
-        with open(map_str_path, 'w') as file:
+        with os.fdopen(os.open(map_str_path, WRITE_FLAGS, FILE_MODE), 'w') as file:
             file.write(f"COCO API:\n{coco_result.stats_str}\n")
             if coco_result.category_stats_strs is not None:
                 for idx, category_str in enumerate(coco_result.category_stats_strs):
@@ -502,7 +505,6 @@ def main():
     parser = get_args_train()
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('coco.yaml')
-    # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
     assert not empty(opt.cfg) or not empty(opt.weights), 'either --cfg or --weights must be specified'
     opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)

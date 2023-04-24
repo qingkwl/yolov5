@@ -20,6 +20,8 @@ import socket
 from argparse import ArgumentParser
 from typing import Dict, Any
 
+from src.general import WRITE_FLAGS, FILE_MODE
+
 
 def parse_args():
     """
@@ -153,7 +155,7 @@ def main():
     table_fn = os.path.join(table_path,
                             'hccl_{}p_{}_{}.json'.format(len(device_num_list), "".join(map(str, device_num_list)),
                                                          server_id))
-    with open(table_fn, 'w') as table_fp:
+    with os.fdopen(os.open(table_fn, WRITE_FLAGS, FILE_MODE), 'w') as table_fp:
         json.dump(hccn_table, table_fp, indent=4)
     sys.stdout.flush()
     print("Completed: hccl file was save in :", table_fn)
