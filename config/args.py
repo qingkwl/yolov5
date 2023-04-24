@@ -71,7 +71,7 @@ def get_args_infer_basic():
 
 
 def get_args_train():
-    test_parser = get_args_test()
+    test_parser = get_args_eval()
     parser = Parser(prog="train.py", add_help=False, conflict_handler="resolve")
     parser.copy_args(test_parser)
     parser.add_argument('--ms_strategy', type=str, default='StaticShape',
@@ -148,8 +148,8 @@ def get_args_train():
     return parser
 
 
-def get_args_test():
-    parser = Parser(prog='test.py', conflict_handler="resolve")
+def get_args_eval():
+    parser = Parser(prog='val.py', conflict_handler="resolve")
     basic_parser = get_args_basic()
     parser.copy_args(basic_parser)
     basic_infer_parser = get_args_infer_basic()

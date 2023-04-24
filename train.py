@@ -20,7 +20,6 @@ import time
 from collections import deque
 from contextlib import nullcontext
 from pathlib import Path
-from test import TestManager
 
 import yaml
 import numpy as np
@@ -34,6 +33,7 @@ from mindspore.ops import functional as F
 from mindspore.profiler.profiling import Profiler
 
 from config.args import get_args_train
+from val import EvalManager
 from src.boost import build_train_network
 from src.dataset import create_dataloader
 from src.general import (check_file, check_img_size, colorstr, increment_path,
@@ -137,8 +137,8 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
     ms.load_param_into_net(infer_model, param_dict)
     del param_dict
     infer_model.set_train(False)
-    test_manager = TestManager(opt)
-    _, _, _, coco_result = test_manager.test(infer_model, val_dataset, val_dataloader, cur_epoch)
+    test_manager = EvalManager(opt)
+    _, _, _, coco_result = test_manager.eval(infer_model, val_dataset, val_dataloader, cur_epoch)
     infer_model.set_train(True)
     return coco_result
 

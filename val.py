@@ -30,7 +30,7 @@ from mindspore.communication.management import get_group_size, get_rank, init
 from mindspore.context import ParallelMode
 from pycocotools.coco import COCO
 
-from config.args import get_args_test
+from config.args import get_args_eval
 from src.coco_visual import CocoVisualUtil
 from src.dataset import create_dataloader
 from src.general import LOGGER, AllReduce, empty
@@ -186,7 +186,7 @@ def load_checkpoint_to_yolo(model, ckpt_path):
     LOGGER.info(f"load ckpt from \"{ckpt_path}\" success.")
 
 
-class TestManager:
+class EvalManager:
     def __init__(self, opt, half_precision=False, compute_loss=None):
         self.opt = opt
         self.half_precision = half_precision
@@ -369,7 +369,7 @@ class TestManager:
         metric_duration = time.time() - metric_start_time
         return metric_duration
 
-    def _test(self, model, dataloader, per_epoch_size):
+    def _eval(self, model, dataloader, per_epoch_size):
         opt = self.opt
         dataset_cfg = self.dataset_cfg
         loss = np.zeros(3)
@@ -564,7 +564,7 @@ class TestManager:
         LOGGER.info(total_time_fmt_str.format(*total_time))
         return speed
 
-    def test(self, model=None, dataset=None, dataloader=None, cur_epoch=None):
+    def eval(self, model=None, dataset=None, dataloader=None, cur_epoch=None):
         opt = self.opt
         self._create_dirs(cur_epoch)
         model = self._config_model(model)
@@ -578,7 +578,7 @@ class TestManager:
         self.cls_map = coco80_to_coco91_class() if self.is_coco else list(range(start_idx, 1000 + start_idx))
 
         # Test
-        metric_stats, time_stats = self._test(model, dataloader, per_epoch_size)
+        metric_stats, time_stats = self._eval(model, dataloader, per_epoch_size)
         self._compute_map_stats(metric_stats)
 
         # Print speeds
@@ -642,7 +642,7 @@ class TestManager:
 
 
 def main():
-    parser = get_args_test()
+    parser = get_args_eval()
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('coco.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
@@ -667,19 +667,19 @@ def main():
     if opt.task in ('train', 'val', 'test'):  # run normally
         print("opt:", opt)
         opt.save_txt = opt.save_txt | opt.save_hybrid
-        test_manager = TestManager(opt)
-        test_manager.test()
+        eval_manager = EvalManager(opt)
+        eval_manager.eval()
 
     elif opt.task == 'speed':  # speed benchmarks
         opt.conf_thres = 0.25
         opt.iou_thres = 0.45
         opt.save_json = False
         opt.plots = False
-        test_manager = TestManager(opt)
-        test_manager.test()
+        eval_manager = EvalManager(opt)
+        eval_manager.eval()
 
     elif opt.task == 'study':  # run over a range of settings and save/plot
-        # python test.py --task study --data coco.yaml --iou 0.65 --weights yolov5.ckpt
+        # python val.py --task study --data coco.yaml --iou 0.65 --weights yolov5.ckpt
         x = list(range(256, 1536 + 128, 128))  # x axis (image sizes)
         f = f'study_{Path(opt.data).stem}_{Path(opt.weights).stem}.txt'  # filename to save to
         y = []  # y axis
@@ -687,8 +687,8 @@ def main():
 
         for i in x:  # img-size
             print(f'\nRunning {f} point {i}...')
-            test_manager = TestManager(opt)
-            metric_stats, _, speed, _ = test_manager.test()
+            eval_manager = EvalManager(opt)
+            metric_stats, _, speed, _ = eval_manager.eval()
             y.append(tuple(metric_stats)[:7] + speed)  # results and times
         np.savetxt(f, y, fmt='%10.4g')  # save
         os.system('zip -r study.zip study_*.txt')

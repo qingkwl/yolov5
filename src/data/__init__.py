@@ -57,7 +57,7 @@ def merge_args(config):
         args = YOLOArgs(**args_dict)
         config.train = str(args.train_anno)
         config.val = str(args.val_anno)
-        config.test = str(args.test_anno)
+        config.eval = str(args.test_anno)
         config.nc = int(args.nc)
         if isinstance(args.names, (str, Path)):
             config.names = YOLOManager.read_txt(args.names)

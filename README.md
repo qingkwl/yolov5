@@ -168,7 +168,7 @@ You can use the following command to evaluate a model:
 
 ```bash
 # Run evaluation on Ascend/GPU by python command
-python test.py \
+python val.py \
   --weights="path/to/weights.ckpt" \
   --cfg="../config/network/yolov5s.yaml" \
   --data="../config/data/coco.yaml" \
@@ -386,7 +386,7 @@ Before running the command below, please check the checkpoint path used for eval
 
 ```shell
 # Run evaluation by python command
-python test.py \
+python val.py \
   --weights="path/to/weights.ckpt" \
   --cfg="../config/network/yolov5s.yaml" \
   --data="../config/data/coco.yaml" \

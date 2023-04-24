@@ -159,7 +159,7 @@ bash run_distribute_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../conf
 
 ```bash
 # Run evaluation on Ascend/GPU by python command
-python test.py \
+python val.py \
   --weights="path/to/weights.ckpt" \
   --cfg="../config/network/yolov5s.yaml" \
   --data="../config/data/coco.yaml" \
@@ -374,7 +374,7 @@ bash mpirun_train.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.ya
 
 ```shell
 # Run evaluation by python command
-python test.py \
+python val.py \
   --weights="path/to/weights.ckpt" \
   --cfg="../config/network/yolov5s.yaml" \
   --data="../config/data/coco.yaml" \
