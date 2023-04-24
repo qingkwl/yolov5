@@ -84,8 +84,6 @@ def box_iou(box1, box2):
     box1 = ops.tile(ops.expand_dims(box1, 1), (1, expand_size_1, 1))
     box2 = ops.tile(ops.expand_dims(box2, 0), (expand_size_2, 1, 1))
 
-    # inter(N,M) = (rb(N,M,2) - lt(N,M,2)).clamp(0).prod(2)
-    # inter = ops.minimum(box1[:, None, 2:], box2[None, :, 2:]) - ops.maximum(box1[:, None, :2], box2[None, :, :2])
     inter = ops.minimum(box1[..., 2:], box2[..., 2:]) - ops.maximum(box1[..., :2], box2[..., :2])
     inter = inter.clip(0., None)
     inter = inter[:, :, 0] * inter[:, :, 1]
@@ -320,7 +318,6 @@ class ComputeLoss(nn.Cell):
             [0, 1],
             [-1, 0],
             [0, -1],  # j,k,l,m
-            # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
         ], dtype=ms.float32)
 
     def scatter_index_tensor(self, x, index):
@@ -373,7 +370,6 @@ class ComputeLoss(nn.Cell):
                     t[mnp.arange(n), tcls[layer_index]] = self.cp
                     lcls += self.BCEcls(pcls, t, ops.tile(tmask[:, None], (1, t.shape[-1])))  # BCE
 
-            # obji = self.BCEobj(pi[..., 4], tobj)
             obji = self.BCEobj(self.scatter_index_tensor(pi, 4), tobj)
             lobj += obji * self.balance[layer_index]  # obj loss
             if self.autobalance:
@@ -427,16 +423,7 @@ class ComputeLoss(nn.Cell):
             j, k = jk[:, 0], jk[:, 1]
             l, m = lm[:, 0], lm[:, 1]
 
-            # # Original
-            # j = ops.stack((ops.ones_like(j), j, k, l, m)) # shape: (5, *)
-            # t = ops.tile(t, (5, 1, 1)) # shape(5, *, 7)
-            # t = t.view(-1, 7)
-            # mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
-            # # t = t.repeat((5, 1, 1))[j]
-            # offsets = (ops.zeros_like(gxy)[None, :, :] + off[:, None, :]) #(1,*,2) + (5,1,2) -> (5,*,2)
-            # offsets = offsets.view(-1, 2)
-
-            # faster,
+            # Faster code
             tag1, tag2 = ops.identity(j), ops.identity(k)
             tag1, tag2 = ops.tile(tag1[:, None], (1, 2)), ops.tile(tag2[:, None], (1, 2))
             j_l = ops.logical_or(j, l).astype(ms.int32)

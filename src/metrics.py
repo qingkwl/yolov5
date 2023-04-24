@@ -119,7 +119,6 @@ def _nms(xyxys, scores, threshold, time_limit=-1, sample_idx=0):
     scores = scores
     # zhy_test
     areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-    # areas = (x2 - x1) * (y2 - y1)
     order = scores.argsort()[::-1]
     reserved_boxes = []
     while order.size > 0:
@@ -133,8 +132,6 @@ def _nms(xyxys, scores, threshold, time_limit=-1, sample_idx=0):
         # zhy_test
         intersect_w = np.maximum(0.0, min_x2 - max_x1 + 1)
         intersect_h = np.maximum(0.0, min_y2 - max_y1 + 1)
-        # intersect_w = np.maximum(0.0, min_x2 - max_x1)
-        # intersect_h = np.maximum(0.0, min_y2 - max_y1)
         intersect_area = intersect_w * intersect_h
 
         ovr = intersect_area / (areas[i] + areas[order[1:]] - intersect_area + 1e-6)
@@ -179,7 +176,6 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
     output = [np.zeros((0, 6))] * prediction.shape[0]
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
-        # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
         x = x[xc[xi]]  # confidence
 
         # Cat apriori labels if autolabelling
@@ -235,7 +231,6 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
             # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
             iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix # (N, M)
             weights = iou * scores[None]  # box weights
-            # (N, M) @ (M, 4) / (N, 1)
             x[i, :4] = np.matmul(weights, x[:, :4]) / weights.sum(1, keepdim=True)  # merged boxes
             if redundant:
                 i = i[iou.sum(1) > 1]  # require redundancy
@@ -255,7 +250,6 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None) -> np.ndarray:
         gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
         pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
     else:
-        # assert ratio_pad[0, 0] == ratio_pad[0, 1]
         gain = ratio_pad[0, 0]
         pad = ratio_pad[1, :]
 
@@ -342,8 +336,6 @@ def ap_per_class(tp, conf, pred_cls, target_cls, v5_metric=False, plot=False, sa
         plot_mc_curve(px, p, os.path.join(save_dir, 'P_curve.png'), names, ylabel='Precision')
         plot_mc_curve(px, r, os.path.join(save_dir, 'R_curve.png'), names, ylabel='Recall')
 
-    # i = f1.mean(0).argmax()  # max F1 index
-    # return p[:, i], r[:, i], ap, f1[:, i], unique_classes.astype('int32')
     i = smooth(f1.mean(0), 0.1).argmax()  # max F1 index
     p, r, f1 = p[:, i], r[:, i], f1[:, i]
     eps = 1e-16

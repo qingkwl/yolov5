@@ -96,9 +96,6 @@ def copy_paste(im, labels, segments, p=0.5):
 
 def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, scale=.1, shear=10, perspective=0.0,
                        border=(0, 0)):
-    # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(.1, .1), scale=(.9, 1.1), shear=(-10, 10))
-    # targets = [cls, xyxy]
-
     height = img.shape[0] + border[0] * 2  # shape(h,w,c)
     width = img.shape[1] + border[1] * 2
 
@@ -115,9 +112,7 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
     # Rotation and Scale
     R = np.eye(3)
     a = random.uniform(-degrees, degrees)
-    # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
     s = random.uniform(1 - scale, 1 + scale)
-    # s = 2 ** random.uniform(-scale, scale)
     R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
 
     # Shear
@@ -137,12 +132,6 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
             img = cv2.warpPerspective(img, M, dsize=(width, height), borderValue=(114, 114, 114))
         else:  # affine
             img = cv2.warpAffine(img, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
-
-    # Visualize
-    # import matplotlib.pyplot as plt
-    # ax = plt.subplots(1, 2, figsize=(12, 6))[1].ravel()
-    # ax[0].imshow(img[:, :, ::-1])  # base
-    # ax[1].imshow(img2[:, :, ::-1])  # warped
 
     # Transform label coordinates
     n = len(targets)
@@ -241,10 +230,8 @@ def load_samples(self, index):
     labels4 = np.concatenate(labels4, 0)
     for x in (labels4[:, 1:], *segments4):
         np.clip(x, 0, 2 * s, out=x)  # clip when using random_perspective()
-    # img4, labels4 = replicate(img4, labels4)  # replicate
 
     # Augment
-    # img4, labels4, segments4 = remove_background(img4, labels4, segments4)
     sample_labels, sample_images, sample_masks = sample_segments(img4, labels4, segments4, probability=0.5)
 
     return sample_labels, sample_images, sample_masks
@@ -310,7 +297,6 @@ def sample_segments(img, labels, segments, probability=0.5):
             box = l[1].astype(int).clip(0, w - 1), l[2].astype(int).clip(0, h - 1),\
                 l[3].astype(int).clip(0, w - 1), l[4].astype(int).clip(0, h - 1)
 
-            # print(box)
             if (box[2] <= box[0]) or (box[3] <= box[1]):
                 continue
 
@@ -324,7 +310,6 @@ def sample_segments(img, labels, segments, probability=0.5):
             result = cv2.bitwise_and(src1=img, src2=mask)
             i = result > 0  # pixels to replace
             mask[i] = result[i]  # cv2.imwrite('debug.jpg', img)  # debug
-            # print(box)
             sample_images.append(mask[box[1]:box[3], box[0]:box[2], :])
 
     return sample_labels, sample_images, sample_masks
@@ -357,12 +342,6 @@ def pastein(image, labels, sample_labels, sample_images, sample_masks):
         if (ioa < 0.30).all() and (not empty(sample_labels)) and (xmax > xmin + 20)\
                 and (ymax > ymin + 20):  # allow 30% obscuration of existing labels
             sel_ind = random.randint(0, len(sample_labels) - 1)
-            # print(len(sample_labels))
-            # print(sel_ind)
-            # print((xmax-xmin, ymax-ymin))
-            # print(image[ymin:ymax, xmin:xmax].shape)
-            # print([[sample_labels[sel_ind], *box]])
-            # print(labels.shape)
             hs, ws, _ = sample_images[sel_ind].shape
             r_scale = min((ymax - ymin) / hs, (xmax - xmin) / ws)
             r_w = int(ws * r_scale)

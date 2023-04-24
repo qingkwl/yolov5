@@ -166,7 +166,6 @@ class YoloMomentum(nn.Optimizer):
     @opt_init_args_register
     def __init__(self, params, learning_rate, momentum, weight_decay=0.0, loss_scale=1.0, use_nesterov=False):
         super(YoloMomentum, self).__init__(learning_rate, params, weight_decay, loss_scale)
-        # Validator.check_value_type("momentum", momentum, [float], self.cls_name)
         if isinstance(momentum, float) and momentum < 0.0:
             raise ValueError("For 'Momentum', the argument 'momentum' must be at least 0.0, "
                              "but got {}".format(momentum))

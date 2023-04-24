@@ -171,17 +171,14 @@ class LoadImagesAndLabels:  # for training/testing
                 p = Path(p)  # os-agnostic
                 if p.is_dir():  # dir
                     f += glob.glob(str(p / '**' / '*.*'), recursive=True)
-                    # f = list(p.rglob('*.*'))  # pathlib
                 elif p.is_file():  # file
                     with open(p) as t:
                         t = t.read().strip().splitlines()
                         parent = str(p.parent) + os.sep
                         f += [x.replace('./', parent, 1) if x.startswith('./') else x for x in t]  # to global path
-                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
                 else:
                     raise FileNotFoundError(f'{prefix}{p} does not exist')
             self.img_files = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
-            # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
             assert self.img_files, f'{prefix}No images found'
         except Exception as e:
             raise Exception(f'{prefix}Error loading data from {path}: {e}\n{HELP_URL}') from e
@@ -211,8 +208,8 @@ class LoadImagesAndLabels:  # for training/testing
         # Read cache
         for k in ('hash', 'version', 'msgs'):   # remove items
             cache.pop(k)
-        # labels: tuple(Nx5 ndarray)
-        # shapes: tuple(tuple(int, int))
+        # type of labels:  tuple(Nx5 ndarray)
+        # type of shapes: tuple(tuple(int, int))
         labels, shapes, self.segments = zip(*cache.values())
         nl = len(np.concatenate(labels, 0))  # number of labels
         assert nl > 0 or not augment, f'{prefix}All labels empty in {cache_path}, can not start training. {HELP_URL}'
@@ -355,12 +352,6 @@ class LoadImagesAndLabels:  # for training/testing
     def __len__(self):
         return len(self.img_files)
 
-    # def __iter__(self):
-    #     self.count = -1
-    #     print('ran dataset iter')
-    #     #self.shuffled_vector = np.random.permutation(self.nF) if self.augment else np.arange(self.nF)
-    #     return self
-
     def __getitem__(self, index):
         index = self.indices[index]  # linear, shuffled, or image_weights
 
@@ -369,7 +360,6 @@ class LoadImagesAndLabels:  # for training/testing
         if mosaic:
             # Load mosaic
             img, labels = self.load_mosaic(index)
-            # shapes = None
             shapes = np.zeros((3, 2))
 
             # MixUp https://arxiv.org/pdf/1710.09412.pdf
@@ -383,10 +373,9 @@ class LoadImagesAndLabels:  # for training/testing
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
             img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
-            # shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
             shapes = np.array([[h0, w0],
                                [h / h0, w / w0],
-                               [pad[0], pad[1]]])  # (3, 2)
+                               [pad[0], pad[1]]])  # (3, 2), for COCO mAP rescaling
 
             labels = self.labels[index].copy()
             if labels.size:  # normalized xywh to pixel xyxy format
@@ -403,9 +392,6 @@ class LoadImagesAndLabels:  # for training/testing
 
         nL = len(labels)  # number of labels
         if nL:
-            # labels[:, 1:5] = xyxy2xywh(labels[:, 1:5])  # convert xyxy to xywh
-            # labels[:, [2, 4]] /= img.shape[0]  # normalized height 0-1
-            # labels[:, [1, 3]] /= img.shape[1]  # normalized width 0-1
             labels[:, 1:5] = xyxy2xywhn(labels[:, 1:5], w=img.shape[1], h=img.shape[0], clip=True, eps=1E-3)
 
         if self.augment:
@@ -520,7 +506,6 @@ class LoadImagesAndLabels:  # for training/testing
         labels4 = np.concatenate(labels4, 0)
         for x in (labels4[:, 1:], *segments4):
             np.clip(x, 0, 2 * s, out=x)  # clip when using random_perspective()
-        # img4, labels4 = replicate(img4, labels4)  # replicate
 
         # Augment
         img4, labels4, segments4 = copy_paste(img4, labels4, segments4, p=self.hyp['copy_paste'])
@@ -597,7 +582,6 @@ class LoadImagesAndLabels:  # for training/testing
 
         for x in (labels9[:, 1:], *segments9):
             np.clip(x, 0, 2 * s, out=x)  # clip when using random_perspective()
-        # img9, labels9 = replicate(img9, labels9)  # replicate
 
         # Augment
         img9, labels9, segments9 = copy_paste(img9, labels9, segments9, p=self.hyp['copy_paste'])
@@ -673,10 +657,7 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, epoch_size=300, hyp=
                                   max_box_per_img=max_box_per_img,
                                   prefix=prefix)
 
-    # cores = multiprocessing.cpu_count()
-    # num_parallel_workers = min(int(cores / rank_size), num_parallel_workers)
     dataset_column_names = ["img", "label_out", "img_files", "shapes"]
-    # de.config.set_prefetch_size(256)
     print(f"[INFO] Num parallel workers: [{num_parallel_workers}]", flush=True)
     if rank_size > 1:
         ds = de.GeneratorDataset(dataset, column_names=dataset_column_names,

@@ -142,7 +142,6 @@ class TrainOneStepGrad(nn.Cell):
         grads = self.grad_fn(x, label, (sens1, sens2))
         grads = self.grad_reducer(grads)
         grads = self.loss_scaler.unscale(grads)
-        # grads_finite = all_finite(grads)
         loss = ops.depend(loss, self.optimizer(grads))
         loss = ops.depend(loss, self.ema.update())
         return loss, loss_items

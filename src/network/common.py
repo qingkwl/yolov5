@@ -117,7 +117,6 @@ class Conv(nn.Cell):
             self.bn = nn.SyncBatchNorm(c2, momentum=0.1, eps=1e-5)
         else:
             self.bn = nn.BatchNorm2d(c2, momentum=0.1, eps=1e-5)
-        # self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Cell) else nn.Identity())
         self.act = nn.SiLU() if act is True else act if isinstance(act, nn.Cell) else nn.Identity()
 
     def construct(self, x):
@@ -206,13 +205,6 @@ def get_convert_matrix():
 
 
 class Detect(nn.Cell):
-
-    # stride = None  # strides computed during build
-    # export = False  # onnx export
-    # end2end = False
-    # include_nms = False
-    # concat = False
-
     def __init__(self, nc=80, anchors=(), ch=()):  # detection layer
         super(Detect, self).__init__()
         self.stride = None
@@ -226,10 +218,6 @@ class Detect(nn.Cell):
         self.no = nc + 5  # number of outputs per anchor
         self.nl = len(anchors)  # number of detection layers
         self.na = len(anchors[0]) // 2  # number of anchors
-        # self.grid_cell = nn.CellList([BaseCell(ms.Parameter(Tensor(np.zeros(1), ms.float32),
-        #                                                     requires_grad=False))
-        #                               for _ in range(self.nl)])
-        # self.grid = [Tensor(np.zeros(1), ms.float32)] * self.nl  # init grid
         self.anchors = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, -1, 2),
                                     requires_grad=False)  # shape(nl,na,2)
         self.anchor_grid = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, 1, -1, 1, 1, 2),
@@ -255,20 +243,13 @@ class Detect(nn.Cell):
             outs += (out,)
 
             if not self.training:  # inference
-                # grid_i_shape = self.grid_cell[i].param.shape
-                # out_shape = out.shape
-                # if grid_i_shape[2:4] != out_shape[2:4]:
-                #     self.grid_cell[i].param = self._make_grid(nx, ny, self.grid_cell[i].param.dtype)
-
                 grid_tensor = self._make_grid(nx, ny, out.dtype)
 
                 y = ops.Sigmoid()(out)
-                # y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid_cell[i].param) * self.stride[i]  # xy
                 y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid_tensor) * self.stride[i]  # xy
                 y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
                 z += (y.view(bs, -1, self.no),)
 
-        # return outs
         return outs if self.training or self.is_export else (ops.concat(z, 1), outs)
 
     @staticmethod
@@ -326,15 +307,9 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
     global _SYNC_BN
     _SYNC_BN = sync_bn
     print('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
-    # anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
-    # na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
-    # no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
-
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     layers_param = []
-    # for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
     for i, layer_cfg in enumerate(d['backbone'] + d['head']):  # from, number, module, args
-        # args, c2, m, n = _parse_layer(args, c2, ch, f, gd, gw, m, n, no)
         c2, f, n, m, args = _parse_layer(ch, d, layer_cfg)
         m_ = nn.SequentialCell([m(*args) for _ in range(n)]) if n > 1 else m(*args)
         t = str(m)  # module type
@@ -356,7 +331,6 @@ def _parse_layer(ch, d, layer_cfg):
     anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
     na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
     no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
-    # m = eval(m) if isinstance(m, str) else m  # eval strings
     m = _get_layer_module(m) if isinstance(m, str) else m
     for j, a in enumerate(args):
         args[j] = eval(a) if isinstance(a, str) else a  # eval strings
@@ -388,7 +362,6 @@ def _parse_layer(ch, d, layer_cfg):
         c2 = ch[f] // args[0] ** 2
     else:
         c2 = ch[f]
-    # return args, c2, m, n
     return c2, f, n, m, args
 
 

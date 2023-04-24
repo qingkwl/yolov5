@@ -29,8 +29,6 @@ __all__ = [
 
 ROOT_DIR = Path(__file__).parent.parent
 LOGGING_NAME = "YOLOs"
-# MSG_FORMAT = "%(asctime)s.%(msecs)03d - [%(levelname)s] - %(pathname)s:%(lineno)d - %(message)s"
-# MSG_FORMAT = "%(asctime)s.%(msecs)03d - [%(levelname)s] - %(relativepath)s:%(lineno)d - %(message)s"
 MSG_FORMAT = "[%(levelname)s] %(asctime)s.%(msecs)03d [%(relativepath)s:%(lineno)d] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 FORMATTER = Formatter(fmt=MSG_FORMAT, datefmt=DATE_FORMAT)

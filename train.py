@@ -132,7 +132,7 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
             return loss
 
     LOGGER.info(f"rank_size: {opt.rank_size}")
-    net_with_loss = NetworkWithLoss(model, compute_loss, opt.rank_size)
+    net_with_loss = NetworkWithLoss(model, compute_loss, opt)
     train_step = build_train_network(network=net_with_loss, ema=ema, optimizer=optimizer,
                                      level='O0', boost_level='O1', amp_loss_scaler=loss_scaler,
                                      sens=sens, enable_clip_grad=enable_clip_grad)

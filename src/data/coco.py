@@ -36,6 +36,7 @@ COCO
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import random
 from pathlib import Path
@@ -46,6 +47,7 @@ import numpy as np
 from pycocotools.coco import COCO
 
 from src.data.base import PATH, BaseArgs, BaseManager, empty, exists, valid_path, COCOArgs, YOLOArgs
+from src.general import WRITE_FLAGS, FILE_MODE
 
 
 class COCOManager(BaseManager):
@@ -125,15 +127,16 @@ class COCOManager(BaseManager):
             category_map = {old_id: new_id for new_id, old_id in enumerate(category_ids)}
             img2ann = coco.imgToAnns
             # Write labels file
-            with logging_redirect_tqdm(loggers=[self.logger]),\
-                    open(target_dir / f"{folder_name}.txt", "w") as txt:
+            with logging_redirect_tqdm(loggers=[self.logger]), \
+                    os.fdopen(os.open(target_dir / f"{folder_name}.txt", WRITE_FLAGS, FILE_MODE), "w") as txt:
                 for img_id, anns in tqdm(img2ann.items(), desc=f'Annotations {json_file}'):
                     img = _images[img_id]
                     file_name = img['file_name']
                     new_img_name = f'{img_id:012d}.jpg'
                     bboxes, segments = self._get_boxes(img, anns, category_map, use_segments)
                     # Write
-                    with open((label_folder / file_name).with_suffix('.txt'), 'a') as file:
+                    with os.fdopen(os.open((label_folder / file_name).with_suffix('.txt'),
+                                           WRITE_FLAGS, FILE_MODE), 'a') as file:
                         for i in range(len(bboxes)):
                             line = (*(segments[i] if use_segments else bboxes[i]),)  # cls, box or segments
                             file.write(('%g ' * len(line)).rstrip() % line + '\n')
@@ -166,9 +169,9 @@ class COCOManager(BaseManager):
             raise FileNotFoundError(f"Directory [{self.args.data_dir}] not found.")
         src_dir = Path(self.args.data_dir)
         train_coco, val_coco = self._split_annotations()
-        with open(self.args.train_anno, "w") as file:
+        with os.fdopen(os.open(self.args.train_anno, WRITE_FLAGS, FILE_MODE), "w") as file:
             json.dump(train_coco, file, indent=4)
-        with open(self.args.val_anno, "w") as file:
+        with os.fdopen(os.open(self.args.val_anno, WRITE_FLAGS, FILE_MODE), "w") as file:
             json.dump(val_coco, file, indent=4)
         self._copy_images(src_dir, "train")
         self._copy_images(src_dir, "val")
@@ -307,7 +310,6 @@ class COCOManager(BaseManager):
             if box[2] <= 0 or box[3] <= 0:  # if w <= 0 and h <= 0
                 continue
             # Category mapping
-            # cls = coco80[ann['category_id'] - 1] if cls91to80 else ann['category_id'] - 1  # class
             cls = category_map[ann['category_id']]
             box = [cls] + box.tolist()
             if box not in bboxes:

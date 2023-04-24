@@ -222,8 +222,6 @@ class LabelmeManager(BaseManager):
             self.logger.warning(f"Skip checking images for img_dir [{img_dir}] because the previous check not passed.")
 
     def _validate_category(self) -> None:
-        # if empty(self.args.train_dir) or not exists(self.args.train_dir):
-        #     raise FileNotFoundError(f"Training images directory {self.args.train_dir} not found.")
         # TODO: Check category ids consistency
         pass
 

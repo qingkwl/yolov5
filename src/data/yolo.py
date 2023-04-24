@@ -52,6 +52,7 @@ YOLO
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 from typing import Any, Optional, Union
@@ -62,7 +63,7 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 from src.data.base import PATH, BaseArgs, BaseManager, empty, exists, valid_path, COCOArgs, YOLOArgs
-from src.general import empty
+from src.general import empty, WRITE_FLAGS, READ_FLAGS, FILE_MODE
 
 
 class YOLOManager(BaseManager):
@@ -172,12 +173,8 @@ class YOLOManager(BaseManager):
                 _ann = self._get_annotations(label_path, img_info)
                 if not empty(_ann):
                     _annotations.extend(_ann)
-        # TODO: Initialize dataset information for converting to COCO
         json_data = {
-            # 'info': self.info,
             'images': _images,
-            # 'licenses': self.licenses,
-            # 'type': self.type,
             'annotations': _annotations,
             'categories': self.category_dict,
         }
@@ -186,7 +183,7 @@ class YOLOManager(BaseManager):
     def _get_annotations(self, label_path: Path, img_info: dict) -> list[dict[str, Any]]:
         _ann = []
         img_id, height, width = img_info['id'], img_info['height'], img_info['width']
-        with open(label_path, 'r', encoding='utf-8') as f:
+        with os.fdopen(os.open(label_path, READ_FLAGS, FILE_MODE), 'r', encoding='utf-8') as f:
             label_list = list(map(lambda x: x.rstrip('\n'), f))
         for i, line in enumerate(label_list):
             label_info = line.split(' ')
@@ -291,9 +288,6 @@ class YOLOManager(BaseManager):
                                 f"because the previous check not passed.")
 
     def _validate_category(self) -> None:
-        # if empty(self.args.categories) or not exists(self.args.categories):
-        #     raise FileNotFoundError(f"Training images directory {self.args.categories} not found.")
-        # TODO: Check category ids consistency
         pass
 
     def _validate_dataset(self) -> None:

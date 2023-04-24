@@ -127,7 +127,6 @@ class DetectEval(COCOeval):
         if self.cocoGt is not None:
             cat_infos = cocoGt.loadCats(cocoGt.getCatIds())
             self.params.labels = {}
-            # self.params.labels = ["" for i in range(len(self.params.catIds))]
             for cat in cat_infos:
                 self.params.labels[cat["id"]] = cat["name"]
 
@@ -520,7 +519,8 @@ class DetectEval(COCOeval):
         A0 = len(p.areaRng)
 
         # cat_pr_dict:
-        # {label1:[precision_li, recall_li, f1_li, score_li], label2:[precision_li, recall_li, f1_li, score_li]}
+        # >> example:
+        # >> {label1:[precision_li, recall_li, f1_li, score_li], label2:[precision_li, recall_li, f1_li, score_li]}
         cat_pr_dict = {}
         cat_pr_dict_origin = {}
 
@@ -712,13 +712,11 @@ class DetectEval(COCOeval):
                     index = f1_li.index(max_f1)
 
                 best_thre = score_li[index]
-                # thre_ = [0.003] + [int(i) * 0.001 for i in range(10, 100, 10)] + [0.099]
                 second_thre = [best_thre + i for i in thre_]
 
             elif len(max_f1) > 1:
                 thre_pre = [index for (index, value) in enumerate(f1_li) if abs(value - max(f1_li)) <= 0.001]
                 best_thre = score_li[thre_pre[int((len(thre_pre) - 1) / 2)]]
-                # thre_ = [0.003] + [int(i) * 0.001 for i in range(10, 100, 10)] + [0.099]
                 second_thre = [best_thre + i for i in thre_]
 
             # Reduce the step unit to find the second confidence threshold
@@ -1088,7 +1086,6 @@ class CocoVisualUtil(CocoDraw):
 
         # 2.2 write best_threshold and pr to csv and plot
         cat_pr_dict, cat_pr_dict_origin = E.compute_precison_recall_f1()
-        # E.write_best_confidence_threshold(cat_pr_dict, cat_pr_dict_origin, eval_result_path)
         best_confidence_thres = E.write_best_confidence_threshold(cat_pr_dict, cat_pr_dict_origin, eval_result_path)
         print("[INFO] best_confidence_thres: ", best_confidence_thres)
         E.plot_mc_curve(cat_pr_dict, eval_result_path)

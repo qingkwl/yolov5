@@ -46,12 +46,9 @@ def merge_args(config):
     else:
         raise ValueError(f"Unsupported model type: {model_name}")
     if target_format == 'yolo':
-        # arg_class: Type[YOLOArgs] = _dataset_arg_mapping["yolo"]
-        # TODO: Add dataset yaml path to config
         arg_path = DATA_CONFIG_ROOT / "yolo.yaml"
         with open(arg_path, "r") as file:
             args_dict = yaml.load(file, Loader=yaml.SafeLoader)
-        # args: YOLOArgs = arg_class.load_args(arg_path)
         if not root:
             args_dict["root"] = root
         args = YOLOArgs(**args_dict)

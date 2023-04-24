@@ -49,7 +49,6 @@ def ms2pt(src_ckpt_path):
                 k = k.replace('moving_variance', 'running_var')
             else:
                 continue
-        # print(k)
         v = torch.from_numpy(v.asnumpy())
         new_params[k] = v
     return new_params
@@ -67,7 +66,6 @@ def amend_pt(src_ckpt_path, src_pt_path, dst_ckpt_path):
     torch_dict["epoch"] = 0
     torch_dict["best_fitness"] = 0
     torch.save(torch_dict, dst_ckpt_path)
-    #print(torch_dict)
 
 
 def main():
