@@ -97,42 +97,53 @@ def copy_paste(im, labels, segments, p=0.5):
 
 def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, scale=.1, shear=10, perspective=0.0,
                        border=(0, 0)):
+    # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(.1, .1), scale=(.9, 1.1), shear=(-10, 10))
+    # targets = [cls, xyxy]
+
     height = img.shape[0] + border[0] * 2  # shape(h,w,c)
     width = img.shape[1] + border[1] * 2
 
     # Center
-    center = np.eye(3)
-    center[0, 2] = -img.shape[1] / 2  # x translation (pixels)
-    center[1, 2] = -img.shape[0] / 2  # y translation (pixels)
+    C = np.eye(3)
+    C[0, 2] = -img.shape[1] / 2  # x translation (pixels)
+    C[1, 2] = -img.shape[0] / 2  # y translation (pixels)
 
     # Perspective
-    perspective = np.eye(3)
-    perspective[2, 0] = random.uniform(-perspective, perspective)  # x perspective (about y)
-    perspective[2, 1] = random.uniform(-perspective, perspective)  # y perspective (about x)
+    P = np.eye(3)
+    P[2, 0] = random.uniform(-perspective, perspective)  # x perspective (about y)
+    P[2, 1] = random.uniform(-perspective, perspective)  # y perspective (about x)
 
     # Rotation and Scale
-    rotation = np.eye(3)
+    R = np.eye(3)
     a = random.uniform(-degrees, degrees)
+    # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
     s = random.uniform(1 - scale, 1 + scale)
-    rotation[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
+    # s = 2 ** random.uniform(-scale, scale)
+    R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
 
     # Shear
-    shear = np.eye(3)
-    shear[0, 1] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # x shear (deg)
-    shear[1, 0] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # y shear (deg)
+    S = np.eye(3)
+    S[0, 1] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # x shear (deg)
+    S[1, 0] = math.tan(random.uniform(-shear, shear) * math.pi / 180)  # y shear (deg)
 
     # Translation
-    translation = np.eye(3)
-    translation[0, 2] = random.uniform(0.5 - translate, 0.5 + translate) * width  # x translation (pixels)
-    translation[1, 2] = random.uniform(0.5 - translate, 0.5 + translate) * height  # y translation (pixels)
+    T = np.eye(3)
+    T[0, 2] = random.uniform(0.5 - translate, 0.5 + translate) * width  # x translation (pixels)
+    T[1, 2] = random.uniform(0.5 - translate, 0.5 + translate) * height  # y translation (pixels)
 
     # Combined rotation matrix
-    matrix = translation @ shear @ rotation @ perspective @ center  # order of operations (right to left) is IMPORTANT
-    if (border[0] != 0) or (border[1] != 0) or (matrix != np.eye(3)).any():  # image changed
+    M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT
+    if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
         if perspective:
-            img = cv2.warpPerspective(img, matrix, dsize=(width, height), borderValue=(114, 114, 114))
+            img = cv2.warpPerspective(img, M, dsize=(width, height), borderValue=(114, 114, 114))
         else:  # affine
-            img = cv2.warpAffine(img, matrix[:2], dsize=(width, height), borderValue=(114, 114, 114))
+            img = cv2.warpAffine(img, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
+
+    # Visualize
+    # import matplotlib.pyplot as plt
+    # ax = plt.subplots(1, 2, figsize=(12, 6))[1].ravel()
+    # ax[0].imshow(img[:, :, ::-1])  # base
+    # ax[1].imshow(img2[:, :, ::-1])  # warped
 
     # Transform label coordinates
     n = len(targets)
@@ -144,7 +155,7 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
             for i, segment in enumerate(segments):
                 xy = np.ones((len(segment), 3))
                 xy[:, :2] = segment
-                xy = xy @ matrix.T  # transform
+                xy = xy @ M.T  # transform
                 xy = xy[:, :2] / xy[:, 2:3] if perspective else xy[:, :2]  # perspective rescale or affine
 
                 # clip
@@ -153,7 +164,7 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
         else:  # warp boxes
             xy = np.ones((n * 4, 3))
             xy[:, :2] = targets[:, [1, 2, 3, 4, 1, 4, 3, 2]].reshape(n * 4, 2)  # x1y1, x2y2, x1y2, x2y1
-            xy = xy @ matrix.T  # transform
+            xy = xy @ M.T  # transform
             xy = (xy[:, :2] / xy[:, 2:3] if perspective else xy[:, :2]).reshape(n, 8)  # perspective rescale or affine
 
             # create new boxes
@@ -171,7 +182,6 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
         targets[:, 1:5] = new[i]
 
     return img, targets
-
 
 def box_candidates(box1, box2, wh_thr=2, ar_thr=20, area_thr=0.1, eps=1e-16):  # box1(4,n), box2(4,n)
     # Compute candidate boxes: box1 before augment, box2 after augment, wh_thr (pixels), aspect_ratio_thr, area_ratio
