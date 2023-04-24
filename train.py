@@ -15,6 +15,7 @@
 
 import copy
 import os
+import math
 import random
 import time
 from collections import deque
@@ -88,22 +89,38 @@ def load_checkpoint_to_yolo(model, ckpt_path, resume):
     return resume_epoch
 
 
+@ops.constexpr
+def _get_new_size(img_shape, gs, imgsz):
+    sz = random.randrange(int(imgsz * 0.5), int(imgsz * 1.5 + gs)) // gs * gs  # size
+    sf = sz / max(img_shape[2:])  # scale factor
+    new_size = img_shape
+    if sf != 1:
+        # new size (stretched to gs-multiple)
+        # Use tuple because nn.interpolate only supports tuple `sizes` parameter must be tuple
+        new_size = tuple(math.ceil(x * sf / gs) * gs for x in img_shape[2:])
+    return new_size
+
+
 def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
-                         rank_size=1, sens=1.0, enable_clip_grad=True):
+                         sens=1.0, enable_clip_grad=True, opt=None, gs=None, imgsz=None):
     class NetworkWithLoss(nn.Cell):
-        def __init__(self, model, compute_loss, rank_size):
+        def __init__(self, model, compute_loss, opt):
             super(NetworkWithLoss, self).__init__()
             self.model = model
             self.compute_loss = compute_loss
-            self.rank_size = rank_size
+            self.rank_size = opt.rank_size
             self.lbox_loss = Parameter(Tensor(0.0, ms.float32), requires_grad=False, name="lbox_loss")
             self.lobj_loss = Parameter(Tensor(0.0, ms.float32), requires_grad=False, name="lobj_loss")
             self.lcls_loss = Parameter(Tensor(0.0, ms.float32), requires_grad=False, name="lcls_loss")
+            self.multi_scale = opt.multi_scale if hasattr(opt, 'multi_scale') else False
+            self.gs = gs
+            self.imgsz = imgsz
 
         def construct(self, x, label, sizes=None):
             x /= 255.0
-            # if sizes is not None:
-            #     x = ops.interpolate(x, sizes=sizes, coordinate_transformation_mode="asymmetric", mode="bilinear")
+            if self.multi_scale and self.training:
+                x = ops.interpolate(x, sizes=_get_new_size(x.shape, self.gs, self.imgsz),
+                                    coordinate_transformation_mode="asymmetric", mode="bilinear")
             pred = self.model(x)
             loss, loss_items = self.compute_loss(pred, label)
             loss_items = ops.stop_gradient(loss_items)
@@ -113,8 +130,8 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
             loss = F.depend(loss, ops.assign(self.lcls_loss, loss_items[2]))
             return loss
 
-    print(f"[INFO] rank_size: {rank_size}", flush=True)
-    net_with_loss = NetworkWithLoss(model, compute_loss, rank_size)
+    LOGGER.info(f"rank_size: {opt.rank_size}")
+    net_with_loss = NetworkWithLoss(model, compute_loss, opt.rank_size)
     train_step = build_train_network(network=net_with_loss, ema=ema, optimizer=optimizer,
                                      level='O0', boost_level='O1', amp_loss_scaler=loss_scaler,
                                      sens=sens, enable_clip_grad=enable_clip_grad)
@@ -234,7 +251,7 @@ class TrainManager:
         compute_loss = ComputeLoss(model)  # init loss class
         ms.amp.auto_mixed_precision(compute_loss, amp_level=opt.ms_amp_level)
         # loss_scaler = self.get_loss_scaler()
-        train_step = self.get_train_step(compute_loss, ema, model, optimizer)
+        train_step = self.get_train_step(compute_loss, ema, model, optimizer, imgsz=imgsz, gs=gs)
         model.set_train(True)
         optimizer.set_train(True)
         run_profiler_epoch = 2
@@ -417,11 +434,12 @@ class TrainManager:
                 for idx, category_str in enumerate(coco_result.category_stats_strs):
                     file.write(f"\nclass {names[idx]}:\n{category_str}\n")
 
-    def get_train_step(self, compute_loss, ema, model, optimizer):
+    def get_train_step(self, compute_loss, ema, model, optimizer, gs, imgsz):
         if self.opt.ms_strategy == "StaticShape":
             train_step = create_train_network(model, compute_loss, ema, optimizer,
-                                              loss_scaler=None, rank_size=self.opt.rank_size,
-                                              sens=self.opt.ms_grad_sens, enable_clip_grad=self.hyp["enable_clip_grad"])
+                                              loss_scaler=None, sens=self.opt.ms_grad_sens, opt=self.opt,
+                                              enable_clip_grad=self.hyp["enable_clip_grad"],
+                                              gs=gs, imgsz=imgsz)
         else:
             raise NotImplementedError
         return train_step
@@ -464,7 +482,8 @@ class TrainManager:
     def freeze_layer(self, model):
         freeze = self.opt.freeze
         # parameter names to freeze (full or partial)
-        freeze = [f'model.{x}.' for x in (freeze if len(freeze) > 1 else range(freeze[0]))]
+        freeze = freeze if len(freeze) > 1 else range(freeze[0])
+        freeze = [f'model.{x}.' for x in freeze]
         for n, p in model.parameters_and_names():
             if any(x in n for x in freeze):
                 print('freezing %s' % n)

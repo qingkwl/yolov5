@@ -33,8 +33,7 @@ def preprocess(opt):
         data = yaml.load(f, Loader=yaml.SafeLoader)
     with open(opt.cfg) as f:
         cfg_ymal = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
-    # gs = max(int(ops.cast(model.stride, ms.float16).max()), 32)  # grid size (max stride)
-    gs = max(max(cfg_ymal['stride']), 32)
+    gs = max(max(cfg_ymal['stride']), 32)   # grid size (max stride)
     task = 'val'
     dataloader, _, per_epoch_size = create_dataloader(data[task], opt.img_size, opt.export_batch_size, gs, opt,
                                                       epoch_size=1, pad=0.5, rect=False,

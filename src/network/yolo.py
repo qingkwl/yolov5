@@ -23,7 +23,6 @@ import mindspore as ms
 from mindspore import Tensor, nn, ops
 
 from src.autoanchor import check_anchor_order
-from src.general import check_img_size
 from src.network.common import Detect, parse_model
 
 
@@ -62,18 +61,6 @@ def scale_img(img, ratio=1.0, same_shape=False, gs=32):  # img(16,3,256,416)
 @ops.constexpr
 def _get_stride_max(stride):
     return int(stride.max())
-
-
-@ops.constexpr
-def _get_new_size(img_shape, gs, imgsz):
-    sz = random.randrange(int(imgsz * 0.5), int(imgsz * 1.5 + gs)) // gs * gs  # size
-    sf = sz / max(img_shape[2:])  # scale factor
-    new_size = img_shape
-    if sf != 1:
-        # new size (stretched to gs-multiple)
-        # Use tuple because nn.interpolate only supports tuple `sizes` parameter must be tuple
-        new_size = tuple(math.ceil(x * sf / gs) * gs for x in img_shape[2:])
-    return new_size
 
 
 class Model(nn.Cell):
@@ -123,19 +110,10 @@ class Model(nn.Cell):
             self._initialize_biases()  # only run once
             # print('Strides: %s' % m.stride.tolist())
 
-        # Multi-scale
-        if opt is not None:
-            self.multi_scale = opt.multi_scale if hasattr(opt, 'multi_scale') else False
-            self.gs = max(int(self.stride.asnumpy().max()), 32)  # grid size (max stride)
-            self.imgsz, _ = [check_img_size(x, self.gs) for x in opt.img_size]  # verify imgsz are gs-multiples
-
         # Init weights, biases
         initialize_weights(self.model, hyp)
 
     def construct(self, x, augment=False):
-        if self.multi_scale and self.training:
-            x = ops.interpolate(x, sizes=_get_new_size(x.shape, self.gs, self.imgsz),
-                                coordinate_transformation_mode="asymmetric", mode="bilinear")
         if augment:
             img_size = x.shape[-2:]  # height, width
             s = (1, 0.83, 0.67)  # scales
