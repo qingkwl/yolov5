@@ -257,12 +257,12 @@ class DetectEval(COCOeval):
         cat_ids = p.catIds
         labels = p.labels
         result = []
-        catIds_gt_num, catIds_dt_num = self.compute_gt_dt_num()
+        cat_ids_gt_num, cat_ids_dt_num = self.compute_gt_dt_num()
         sum_gt_num = 0
         sum_dt_num = 0
-        for value in catIds_gt_num.values():
+        for value in cat_ids_gt_num.values():
             sum_gt_num += value
-        for value in catIds_dt_num.values():
+        for value in cat_ids_dt_num.values():
             sum_dt_num += value
         sum_tp_num = 0
 
@@ -270,10 +270,14 @@ class DetectEval(COCOeval):
             # Here is hard-coded
             stats = self.cat_id_summarize(cat_id=i)
             recall = stats
-            gt_num = catIds_gt_num[cat_id]
+            gt_num = cat_ids_gt_num.get(cat_id, None)
+            if gt_num is None:
+                raise ValueError(f"Category id {cat_id} not found.")
             tp_num = recall * gt_num
             sum_tp_num += tp_num
-            dt_num = catIds_dt_num[cat_id]
+            dt_num = cat_ids_dt_num.get(cat_id, None)
+            if dt_num is None:
+                raise ValueError(f"Category id {cat_id} not found.")
             if dt_num <= 0:
                 if gt_num == 0:
                     precision = -1
@@ -506,7 +510,7 @@ class DetectEval(COCOeval):
         if not self.evalImgs:
             print('[INFO] Please run evaluate() first')
         p = self.params
-        catIds = p.catIds if p.useCats == 1 else [-1]
+        cat_ids = p.catIds if p.useCats == 1 else [-1]
         labels = p.labels
 
         assert len(p.maxDets) == 1
@@ -529,24 +533,24 @@ class DetectEval(COCOeval):
 
         for k0 in k_list:
             num_cat = k0 * num_area_rng * num_image
-            # areagRng
+            # area_Rng
             for num_area_rng in a_list:
                 num_area = num_area_rng * num_image
-                # maxDet
-                for maxDet in m_list:
+                # max_det
+                for max_det in m_list:
                     eval_images = [self.evalImgs[num_cat + num_area + i] for i in i_list]
                     eval_images = [e for e in eval_images if e is not None]
                     if not eval_images:
                         continue
-                    dt_scores = np.concatenate([e['dtScores'][0:maxDet] for e in eval_images])
+                    dt_scores = np.concatenate([e['dtScores'][0:max_det] for e in eval_images])
 
                     # different sorting method generates slightly different results.
                     # mergesort is used to be consistent as Matlab implementation.
                     inds = np.argsort(-dt_scores, kind='mergesort')
                     dt_scores_sorted = dt_scores[inds]
 
-                    dtm = np.concatenate([e['dtMatches'][:, 0:maxDet] for e in eval_images], axis=1)[:, inds]
-                    dt_ig = np.concatenate([e['dtIgnore'][:, 0:maxDet] for e in eval_images], axis=1)[:, inds]
+                    dtm = np.concatenate([e['dtMatches'][:, 0:max_det] for e in eval_images], axis=1)[:, inds]
+                    dt_ig = np.concatenate([e['dtIgnore'][:, 0:max_det] for e in eval_images], axis=1)[:, inds]
                     gt_ig = np.concatenate([e['gtIgnore'] for e in eval_images])
                     npig = np.count_nonzero(gt_ig == 0)
                     if npig == 0:
@@ -560,7 +564,7 @@ class DetectEval(COCOeval):
 
                     tp_sum = np.cumsum(tps, axis=1).astype(dtype=np.float)
                     fp_sum = np.cumsum(fps, axis=1).astype(dtype=np.float)
-                    ids = catIds[k0]
+                    ids = cat_ids[k0]
                     label = labels[ids]
 
                     self.calculate_pr_dict(tp_sum, fp_sum, label, npig, dt_scores_sorted, cat_pr_dict,
@@ -611,7 +615,7 @@ class DetectEval(COCOeval):
         if not self.evalImgs:
             print('[WARNING] Please run evaluate() first')
         p = self.params
-        catIds = p.catIds if p.useCats == 1 else [-1]
+        cat_ids = p.catIds if p.useCats == 1 else [-1]
         labels = p.labels
 
         assert len(p.maxDets) == 1
@@ -666,7 +670,7 @@ class DetectEval(COCOeval):
                     fp_confidence = dt_scores_sorted[fp_inds[1]]
                     tp_confidence_li = tp_confidence.tolist()
                     fp_confidence_li = fp_confidence.tolist()
-                    ids = catIds[k0]
+                    ids = cat_ids[k0]
                     label = labels[ids]
 
                     # Ensure that the second and third for loops only enter once
@@ -1090,7 +1094,9 @@ class CocoVisualUtil(CocoDraw):
 
         # 2.2 write best_threshold and pr to csv and plot
         cat_pr_dict, cat_pr_dict_origin = det_eval.compute_precison_recall_f1()
-        best_confidence_thres = det_eval.write_best_confidence_threshold(cat_pr_dict, cat_pr_dict_origin, eval_result_path)
+        best_confidence_thres = det_eval.write_best_confidence_threshold(
+            cat_pr_dict, cat_pr_dict_origin, eval_result_path
+        )
         print("[INFO] best_confidence_thres: ", best_confidence_thres)
         det_eval.plot_mc_curve(cat_pr_dict, eval_result_path)
 
@@ -1164,8 +1170,8 @@ class CocoVisualUtil(CocoDraw):
             iou_type = 'bbox' if res_type == 'proposal' else res_type
 
             # draw eval image
-            E = DetectEval(coco, coco_dets, iou_type)
-            E.save_anns_images(config, im_path_dir, score_threshold=score_threshold)
+            detect_eval = DetectEval(coco, coco_dets, iou_type)
+            detect_eval.save_anns_images(config, im_path_dir, score_threshold=score_threshold)
 
             # set recommend threshold
             if recommend_threshold:

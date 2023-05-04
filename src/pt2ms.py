@@ -27,7 +27,7 @@ def main():
     torch_dict = torch_dict["model"].state_dict()
 
     new_params_list = []
-    for k, v in torch_dict.items():
+    for k, _ in torch_dict.items():
         k_backup = k
         elem_list = k.split('.')
         if len(elem_list) <= 1:

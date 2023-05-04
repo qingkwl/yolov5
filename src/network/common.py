@@ -23,7 +23,7 @@ import mindspore.numpy as mnp
 from mindspore import Tensor, nn, ops
 from mindspore.common.initializer import HeUniform
 
-from src.general import make_divisible, empty, LOGGER
+from src.general import make_divisible, empty
 
 _SYNC_BN = False
 
@@ -230,11 +230,6 @@ class Detect(nn.Cell):
                                         bias_init=_init_bias((self.no * self.na, x, 1, 1))) for x in ch])  # output conv
 
     @staticmethod
-    def _make_grid(nx=20, ny=20, dtype=ms.float32):
-        xv, yv = ops.meshgrid((mnp.arange(nx), mnp.arange(ny)))
-        return ops.cast(ops.stack((xv, yv), 2).view((1, 1, ny, nx, 2)), dtype)
-
-    @staticmethod
     def convert(z):
         z = ops.concat(z, 1)
         box = z[:, :, :4]
@@ -268,6 +263,11 @@ class Detect(nn.Cell):
 
         return outs if self.training or self.is_export else (ops.concat(z, 1), outs)
 
+    @staticmethod
+    def _make_grid(nx=20, ny=20, dtype=ms.float32):
+        xv, yv = ops.meshgrid((mnp.arange(nx), mnp.arange(ny)))
+        return ops.cast(ops.stack((xv, yv), 2).view((1, 1, ny, nx, 2)), dtype)
+
 
 class Proto(nn.Cell):
     # YOLOv5 mask Proto module for segmentation models
@@ -294,7 +294,6 @@ class Segment(Detect):
                                         has_bias=True,
                                         weight_init=HeUniform(negative_slope=math.sqrt(5)),
                                         bias_init=_init_bias((self.no * self.na, x, 1, 1))) for x in ch])  # output conv
-        # self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
         self.proto = Proto(ch[0], self.npr, self.nm)  # protos
         self.detect = Detect.construct
 
@@ -334,7 +333,6 @@ def _parse_layer(ch, d, layer_cfg):
     no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
     m = _get_layer_module(m) if isinstance(m, str) else m
     for j, a in enumerate(args):
-        args[j] = eval(a) if isinstance(a, str) else a  # eval strings
         if isinstance(a, str):
             args[j] = int(a) if a.isnumeric() else d[a]
     n = max(round(n * gd), 1) if n > 1 else n  # depth gain

@@ -136,7 +136,9 @@ def main():
     rank_id = 0
     for instance_id in device_num_list:
         device_id = visible_devices[instance_id]
-        device_ip = device_ips[device_id]
+        device_ip = device_ips.get(device_id, None)
+        if device_ip is None:
+            raise ValueError(f"Device IP {device_ip} not found.")
         device = {'device_id': device_id,
                   'device_ip': device_ip,
                   'rank_id': str(rank_id)}

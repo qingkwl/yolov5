@@ -4,9 +4,9 @@ from mindspore import SummaryRecord
 LOGGERS = ('csv', 'ms')  # ('csv', 'tb', 'wandb', 'clearml', 'comet')  # *.csv, TensorBoard, Weights & Biases, ClearML
 RANK = int(os.getenv('RANK_ID', "-1"))
 
-wandb = None
-clearml = None
-comet_ml = None
+WANDB = None
+CLEARML = None
+COMET_ML = None
 
 
 class SummaryLoggers:

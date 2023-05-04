@@ -39,6 +39,7 @@ Labelme
 
 from __future__ import annotations
 
+import os
 import json
 import shutil
 from pathlib import Path
@@ -48,7 +49,8 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 import numpy as np
 
-from src.data.base import PATH, BaseArgs, BaseManager, empty, valid_path, COCOArgs, LabelmeArgs
+from src.data.base import PATH, BaseArgs, BaseManager, empty_path, valid_path, COCOArgs, LabelmeArgs
+from src.general import FILE_MODE, WRITE_FLAGS
 
 
 class Encoder(json.JSONEncoder):
@@ -100,7 +102,7 @@ class LabelmeManager(BaseManager):
             raise ValueError(f"The target format [{target_format}] is not supported.")
 
     def _check_dirs(self) -> None:
-        if empty(self.args.root):
+        if empty_path(self.args.root):
             raise ValueError(f"The root directory is empty, which must be set.")
 
     def _convert_to_coco(self, data_dir: Path, target_dir: Path, copy_images: bool = True) -> dict[str, Any]:
@@ -186,7 +188,7 @@ class LabelmeManager(BaseManager):
             target_dir = Path(target_dir)
             target_json = Path(target_json)
             coco = self._convert_to_coco(data_dir, target_dir, copy_images)
-            with open(target_json, 'w') as file:
+            with os.fdopen(os.open(target_json, WRITE_FLAGS, FILE_MODE), 'w') as file:
                 json.dump(coco, file, indent=4, cls=Encoder)
 
         self.reset()

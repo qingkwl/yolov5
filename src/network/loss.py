@@ -205,11 +205,10 @@ def bbox_iou_2(box1, box2, x1y1x2y2=True, g_iou=False, d_iou=False, c_iou=False,
                 alpha = ops.stop_gradient(alpha)
                 return iou - (rho2 / c2 + v * alpha)  # CIoU
             return iou  # common IoU
-        else:  # GIoU https://arxiv.org/pdf/1902.09630.pdf
-            c_area = cw * ch + eps  # convex area
-            return iou - (c_area - union) / c_area  # GIoU
-    else:
-        return iou  # IoU
+        # GIoU https://arxiv.org/pdf/1902.09630.pdf
+        c_area = cw * ch + eps  # convex area
+        return iou - (c_area - union) / c_area  # GIoU
+    return iou  # IoU
 
 
 def smooth_bce(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441

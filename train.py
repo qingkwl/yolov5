@@ -39,7 +39,7 @@ from src.boost import build_train_network
 from src.dataset import create_dataloader
 from src.general import (check_file, check_img_size, colorstr, increment_path,
                          labels_to_class_weights, LOGGER, process_dataset_cfg, empty,
-                         WRITE_FLAGS, READ_FLAGS, FILE_MODE)
+                         WRITE_FLAGS, FILE_MODE)
 from src.network.common import EMA
 from src.network.loss import ComputeLoss
 from src.network.yolo import Model
@@ -260,7 +260,6 @@ class TrainManager:
         ms.amp.auto_mixed_precision(model, amp_level=opt.ms_amp_level)
         compute_loss = ComputeLoss(model)  # init loss class
         ms.amp.auto_mixed_precision(compute_loss, amp_level=opt.ms_amp_level)
-        # loss_scaler = self.get_loss_scaler()
         train_step = self.get_train_step(compute_loss, ema, model, optimizer, imgsz=imgsz, gs=gs)
         model.set_train(True)
         optimizer.set_train(True)

@@ -44,10 +44,13 @@ PIN_MEMORY = str(os.getenv('PIN_MEMORY', "True")).lower() == 'true'  # global pi
 TQDM_BAR_FORMAT = '{l_bar}{bar:10}{r_bar}'  # tqdm bar format
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of YOLOv5 multiprocessing threads
 
-# Get orientation exif tag
-for orientation in ExifTags.TAGS.keys():
-    if ExifTags.TAGS[orientation] == 'Orientation':
-        break
+
+def get_orientation_key():
+    # Get orientation exif tag
+    for orientation in ExifTags.TAGS.keys():
+        if ExifTags.TAGS[orientation] == 'Orientation':
+            return orientation
+    return None
 
 
 def get_hash(paths):
@@ -62,7 +65,7 @@ def exif_size(img):
     # Returns exif-corrected PIL size
     s = img.size  # (width, height)
     try:
-        rotation = dict(img.getexif().items())[orientation]
+        rotation = dict(img.getexif().items())[get_orientation_key()]
         if rotation == 6:  # rotation 270
             s = (s[1], s[0])
         elif rotation == 8:  # rotation 90
@@ -75,21 +78,21 @@ def exif_size(img):
 
 def verify_image_label(args):
     # Verify one image-label pair
-    im_file, lb_file, prefix = args
+    img_file, lb_file, prefix = args
     nm, nf, ne, nc, msg, segments = 0, 0, 0, 0, '', []  # number (missing, found, empty, corrupt), message, segments
     try:
         # verify images
-        im = Image.open(im_file)
+        im = Image.open(img_file)
         im.verify()  # PIL verify
         shape = exif_size(im)  # image size
         assert (shape[0] > 9) & (shape[1] > 9), f'image size {shape} <10 pixels'
         assert im.format.lower() in IMG_FORMATS, f'invalid image format {im.format}'
         if im.format.lower() in ('jpg', 'jpeg'):
-            with open(im_file, 'rb') as f:
+            with open(img_file, 'rb') as f:
                 f.seek(-2, 2)
                 if f.read() != b'\xff\xd9':  # corrupt JPEG
-                    ImageOps.exif_transpose(Image.open(im_file)).save(im_file, 'JPEG', subsampling=0, quality=100)
-                    msg = f'{prefix}WARNING ⚠️ {im_file}: corrupt JPEG restored and saved'
+                    ImageOps.exif_transpose(Image.open(img_file)).save(img_file, 'JPEG', subsampling=0, quality=100)
+                    msg = f'{prefix}WARNING ⚠️ {img_file}: corrupt JPEG restored and saved'
 
         # verify labels
         if os.path.isfile(lb_file):
@@ -111,17 +114,17 @@ def verify_image_label(args):
                     lb = lb[i]  # remove duplicates
                     if segments:
                         segments = [segments[x] for x in i]
-                    msg = f'{prefix}WARNING ⚠️ {im_file}: {nl - len(i)} duplicate labels removed'
+                    msg = f'{prefix}WARNING ⚠️ {img_file}: {nl - len(i)} duplicate labels removed'
             else:
                 ne = 1  # label empty
                 lb = np.zeros((0, 5), dtype=np.float32)
         else:
             nm = 1  # label missing
             lb = np.zeros((0, 5), dtype=np.float32)
-        return im_file, lb, shape, segments, nm, nf, ne, nc, msg
+        return img_file, lb, shape, segments, nm, nf, ne, nc, msg
     except Exception as e:
         nc = 1
-        msg = f'{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}'
+        msg = f'{prefix}WARNING ⚠️ {img_file}: ignoring corrupt image/label: {e}'
         return [None, None, None, None, nm, nf, ne, nc, msg]
 
 
@@ -185,7 +188,7 @@ class LoadImagesAndLabels:  # for training/testing
 
         # Check cache
         self.label_files = img2label_paths(self.img_files)  # labels
-        cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
+        cache_path = self.get_cache_path()
         try:
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
             try:
@@ -201,8 +204,10 @@ class LoadImagesAndLabels:  # for training/testing
         if exists:
             d = f"Scanning {cache_path}... {nf} images, {nm + ne} backgrounds, {nc} corrupt"
             tqdm(None, desc=prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)  # display cache results
-            if cache['msgs']:
-                print('\n'.join(cache['msgs']), flush=True)  # display warnings
+            if cache.get('msg', None) is not None:
+                msg = cache.get('msg', '')
+                if msg:
+                    print('\n'.join(cache['msgs']), flush=True)  # display warnings
         assert nf > 0 or not augment, f'{prefix}No labels found in {cache_path}, can not start training. {HELP_URL}'
 
         # Read cache
@@ -293,6 +298,12 @@ class LoadImagesAndLabels:  # for training/testing
                 pbar.desc = f'{prefix}Caching images ({b / gb:.1f}GB {cache_images})'
             pbar.close()
 
+    def get_cache_path(self):
+        path = self.path
+        p = path if not isinstance(path, list) else path[0]
+        cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
+        return cache_path
+
     def __len__(self):
         return len(self.img_files)
 
@@ -377,7 +388,8 @@ class LoadImagesAndLabels:  # for training/testing
         # create fixed label, avoid dynamic shape problem.
         labels_out = np.full((self.max_box_per_img, 6), -1, dtype=np.float32)
         if num_labels:
-            labels_out[:min(num_labels, self.max_box_per_img), :] = _labels_out[:min(num_labels, self.max_box_per_img), :]
+            labels_out[:min(num_labels, self.max_box_per_img), :] = \
+                _labels_out[:min(num_labels, self.max_box_per_img), :]
 
         # Convert
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
@@ -564,9 +576,9 @@ class LoadImagesAndLabels:  # for training/testing
         indices = [index] + random.choices(self.indices, k=8)  # 8 additional image indices
         random.shuffle(indices)
         hp, wp = -1, -1  # height, width previous
-        for i, index in enumerate(indices):
+        for i, idx in enumerate(indices):
             # Load image
-            img, _, (h, w) = self.load_image(index)
+            img, _, (h, w) = self.load_image(idx)
 
             # place img in img9
             if i == 0:  # center
@@ -594,7 +606,7 @@ class LoadImagesAndLabels:  # for training/testing
             x1, y1, x2, y2 = (max(x, 0) for x in c)  # allocate coords
 
             # Labels
-            labels, segments = self.labels[index].copy(), self.segments[index].copy()
+            labels, segments = self.labels[idx].copy(), self.segments[idx].copy()
             if labels.size:
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], w, h, padx, pady)  # normalized xywh to pixel xyxy format
                 segments = [xyn2xy(x, w, h, padx, pady) for x in segments]

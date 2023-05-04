@@ -46,7 +46,7 @@ from tqdm.contrib.logging import logging_redirect_tqdm
 import numpy as np
 from pycocotools.coco import COCO
 
-from src.data.base import PATH, BaseArgs, BaseManager, empty, exists, valid_path, COCOArgs, YOLOArgs
+from src.data.base import PATH, BaseArgs, BaseManager, empty_path, exists, valid_path, COCOArgs, YOLOArgs
 from src.general import WRITE_FLAGS, FILE_MODE
 
 
@@ -117,7 +117,7 @@ class COCOManager(BaseManager):
             raise ValueError(f"The target format [{target_format}] is not supported.")
 
     def split(self) -> None:
-        if empty(self.args.data_dir) or not exists(self.args.data_dir):
+        if empty_path(self.args.data_dir) or not exists(self.args.data_dir):
             raise FileNotFoundError(f"Directory [{self.args.data_dir}] not found.")
         src_dir = Path(self.args.data_dir)
         train_coco, val_coco = self._split_annotations()
@@ -130,7 +130,7 @@ class COCOManager(BaseManager):
         self._validate_dataset()
 
     def _check_args(self) -> None:
-        if empty(self.args.root) or not exists(self.args.root):
+        if empty_path(self.args.root) or not exists(self.args.root):
             raise FileNotFoundError(f"The root directory [{self.args.root}] not found.")
 
     def _to_yolo(self,
@@ -204,7 +204,7 @@ class COCOManager(BaseManager):
         pass
 
     def _split_annotations(self) -> tuple[dict, dict]:
-        if empty(self.args.data_anno) or not exists(self.args.data_anno):
+        if empty_path(self.args.data_anno) or not exists(self.args.data_anno):
             raise FileNotFoundError(f"The annotation file [{self.args.data_anno}] not found.")
         train_coco, val_coco = {}, {}
         with open(self.args.data_anno, "r") as file:
@@ -366,14 +366,14 @@ class COCOManager(BaseManager):
                                 f"and img_dir [{img_dir}] because the previous check not passed.")
 
     def _validate_category(self) -> None:
-        if empty(self.args.train_anno) or not exists(self.args.train_anno):
+        if empty_path(self.args.train_anno) or not exists(self.args.train_anno):
             raise FileNotFoundError(f"Training annotation file [{self.args.train_anno}] not found.")
         with open(self.args.train_anno, "r") as file:
             train_anno = json.load(file)
         train_cat_ids = set(cat['id'] for cat in train_anno['categories'])
 
         def get_valid_ids(anno: PATH):
-            if empty(anno) or not exists(anno):
+            if empty_path(anno) or not exists(anno):
                 return None
             with open(anno, "r") as ann_file:
                 _anno = json.load(ann_file)

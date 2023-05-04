@@ -62,8 +62,8 @@ import cv2
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
-from src.data.base import PATH, BaseArgs, BaseManager, empty, exists, valid_path, COCOArgs, YOLOArgs
-from src.general import empty, WRITE_FLAGS, READ_FLAGS, FILE_MODE
+from src.data.base import PATH, BaseArgs, BaseManager, empty_path, exists, valid_path, COCOArgs, YOLOArgs
+from src.general import WRITE_FLAGS, FILE_MODE
 
 
 class YOLOManager(BaseManager):
@@ -112,7 +112,7 @@ class YOLOManager(BaseManager):
         return {idx: idx for idx in range(len(self.class_names))}
 
     def _check_args(self) -> None:
-        if empty(self.args.root) or not exists(self.args.root):
+        if empty_path(self.args.root) or not exists(self.args.root):
             raise FileNotFoundError(f"The root directory [{self.args.root}] not found.")
 
     @staticmethod
@@ -173,7 +173,7 @@ class YOLOManager(BaseManager):
                     self.logger.warning(f"Label [{label_path}] not found.")
                     continue
                 _ann = self._get_annotations(label_path, img_info)
-                if not empty(_ann):
+                if not empty_path(_ann):
                     _annotations.extend(_ann)
         json_data = {
             'images': _images,
@@ -185,7 +185,7 @@ class YOLOManager(BaseManager):
     def _get_annotations(self, label_path: Path, img_info: dict) -> list[dict[str, Any]]:
         _ann = []
         img_id, height, width = img_info['id'], img_info['height'], img_info['width']
-        with os.fdopen(os.open(label_path, READ_FLAGS, FILE_MODE), 'r', encoding='utf-8') as f:
+        with open(label_path, 'r', encoding='utf-8') as f:
             label_list = list(map(lambda x: x.rstrip('\n'), f))
         for i, line in enumerate(label_list):
             label_info = line.split(' ')
@@ -245,7 +245,7 @@ class YOLOManager(BaseManager):
 
         def convert_data(anno_file: PATH, _target_dir: Optional[PATH], json_path: PATH):
             anno_data = self._convert_to_coco(anno_file, _target_dir)
-            with open(json_path, 'w', encoding='utf-8') as f:
+            with os.fdopen(os.open(json_path, WRITE_FLAGS, FILE_MODE), 'w', encoding='utf-8') as f:
                 json.dump(anno_data, f, ensure_ascii=False)
 
         if valid_path(self.args.data_anno):

@@ -243,7 +243,7 @@ def colorstr(*inputs):
               'end': '\033[0m',  # misc
               'bold': '\033[1m',
               'underline': '\033[4m'}
-    return ''.join(colors[x] for x in args) + f'{string}' + colors['end']
+    return ''.join(colors.get(x, '') for x in args) + f'{string}' + colors.get('end', '')
 
 
 def make_divisible(x, divisor):
@@ -333,7 +333,7 @@ def process_dataset_cfg(dataset_cfg):
 
 def empty(seq: list | tuple | np.ndarray | str | dict):
     if isinstance(seq, (list, tuple, np.ndarray, str, dict)):
-        return len(seq) == 0
+        return not len(seq) > 0
     raise TypeError(f"Unsupported type {type(seq)} of input `seq`")
 
 
@@ -380,7 +380,7 @@ class Callbacks:
         self._callbacks[hook].append({'name': name, 'callback': callback})
 
     def get_registered_actions(self, hook=None):
-        """"
+        """
         Returns all the registered actions by callback hook
 
         Args:
@@ -415,6 +415,7 @@ class COCOEval(COCOeval):
 
     def __init__(self, coco_gt=None, coco_dt=None, iou_type='segm'):
         super().__init__(coco_gt, coco_dt, iou_type)
+        self.stats = []  # result summarization
         self.stats_str = ''
         self.category_stats = []
         self.category_stats_strs = []
@@ -467,7 +468,7 @@ class COCOEval(COCOeval):
                 mean_s = np.mean(s[s > -1])
             return mean_s, i_str.format(title_str, type_str, iou_str, area_rng, max_dets, mean_s)
 
-        def _summarizeDets(category_id=None):
+        def _summarize_dets(category_id=None):
             stats = np.zeros((12,))
             stats_str = [''] * 12
             stats[0], stats_str[0] = _summarize(1, category_id=category_id)
@@ -491,7 +492,7 @@ class COCOEval(COCOeval):
                                                   max_dets=self.params.maxDets[2], category_id=category_id)
             return stats, '\n'.join(stats_str)
 
-        def _summarizeKps(category_id=None):
+        def _summarize_kps(category_id=None):
             stats = np.zeros((10,))
             stats_str = [''] * 10
             stats[0], stats_str[0] = _summarize(1, max_dets=20, category_id=category_id)
@@ -510,9 +511,9 @@ class COCOEval(COCOeval):
             raise Exception('Please run accumulate() first')
         iou_type = self.params.iouType
         if iou_type in ('segm', 'bbox'):
-            summarize = _summarizeDets
+            summarize = _summarize_dets
         elif iou_type == 'keypoints':
-            summarize = _summarizeKps
+            summarize = _summarize_kps
         else:
             raise ValueError(f"Unsupported iouType: {iou_type}")
 

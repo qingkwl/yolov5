@@ -37,7 +37,7 @@ from src.general import LOGGER, AllReduce, empty
 from src.general import COCOEval as COCOeval
 from src.general import (Synchronize, SynchronizeManager, box_iou, check_file,
                          check_img_size, coco80_to_coco91_class, colorstr,
-                         increment_path, xywh2xyxy, xyxy2xywh, WRITE_FLAGS, READ_FLAGS, FILE_MODE)
+                         increment_path, xywh2xyxy, xyxy2xywh, WRITE_FLAGS, FILE_MODE)
 from src.metrics import (ConfusionMatrix, ap_per_class, non_max_suppression,
                          scale_coords)
 from src.network.yolo import Model
@@ -117,7 +117,7 @@ class MetricStatistics:
         self.map = np.mean(self.ap)
 
     def get_mean_stats(self):
-        return self.mp, self.mr, self.map50, self.map
+        return self.metric_tuple(self.mp, self.mr, self.map50, self.map)
 
     def compute_ap_per_class(self, plot=False, save_dir='.', names=()):
         tp, conf, pred_class, target_cls = self.pred_stats
@@ -133,7 +133,7 @@ class MetricStatistics:
         self.set_mean_stats()
 
     def get_ap_per_class(self, idx):
-        return self.precision[idx], self.recall[idx], self.ap50[idx], self.ap[idx]
+        return self.cls_stat_tuple(self.precision[idx], self.recall[idx], self.ap50[idx], self.ap[idx])
 
 
 class TimeStatistics:
