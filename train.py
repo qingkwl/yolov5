@@ -157,9 +157,9 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
     del param_dict
     infer_model.set_train(False)
     test_manager = EvalManager(opt)
-    _, _, _, coco_result = test_manager.eval(infer_model, val_dataset, val_dataloader, cur_epoch)
+    val_result = test_manager.eval(infer_model, val_dataset, val_dataloader, cur_epoch)
     infer_model.set_train(True)
-    return coco_result
+    return val_result.coco_result
 
 
 def save_ema(ema, ema_ckpt_path, append_dict=None):

@@ -18,6 +18,7 @@ import hashlib
 import math
 import os
 import random
+from collections import namedtuple
 from itertools import repeat
 from multiprocessing.pool import Pool, ThreadPool
 from pathlib import Path
@@ -80,6 +81,10 @@ def verify_image_label(args):
     # Verify one image-label pair
     img_file, lb_file, prefix = args
     nm, nf, ne, nc, msg, segments = 0, 0, 0, 0, '', []  # number (missing, found, empty, corrupt), message, segments
+    img_label = namedtuple(
+        'ImageLabel',
+        ['img_file', 'label', 'shape', 'segments', 'num_missing', 'num_found', 'num_empty', 'num_corrupt', 'message']
+    )
     try:
         # verify images
         im = Image.open(img_file)
@@ -121,17 +126,20 @@ def verify_image_label(args):
         else:
             nm = 1  # label missing
             lb = np.zeros((0, 5), dtype=np.float32)
-        return img_file, lb, shape, segments, nm, nf, ne, nc, msg
+        return img_label(img_file, lb, shape, segments, nm, nf, ne, nc, msg)
     except Exception as e:
         nc = 1
         msg = f'{prefix}WARNING ⚠️ {img_file}: ignoring corrupt image/label: {e}'
-        return [None, None, None, None, nm, nf, ne, nc, msg]
+        return img_label(None, None, None, None, nm, nf, ne, nc, msg)
 
 
 def img2label_paths(img_paths):
     # Define label paths as a function of image paths
     sa, sb = os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep  # /images/, /labels/ substrings
     return ['txt'.join(x.replace(sa, sb, 1).rsplit(x.split('.')[-1], 1)) for x in img_paths]
+
+
+IMG_TUPLE = namedtuple('Image', ['img', 'labels', 'img_path', 'shapes'])
 
 
 class LoadImagesAndLabels:  # for training/testing
@@ -320,7 +328,6 @@ class LoadImagesAndLabels:  # for training/testing
             # MixUp https://arxiv.org/pdf/1710.09412.pdf
             if random.random() < hyp['mixup']:
                 img, labels = mixup(img, labels, * self.load_mosaic(random.randint(0, self.n - 1)))
-
         else:
             # Load image
             img, (h0, w0), (h, w) = load_image(self, index)
@@ -395,13 +402,18 @@ class LoadImagesAndLabels:  # for training/testing
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
         img = np.ascontiguousarray(img)
 
-        return img, labels_out, self.img_files[index], shapes
+        return IMG_TUPLE(img, labels_out, self.img_files[index], shapes)
 
     @staticmethod
     def collate_fn(img, label, path, shapes, batch_info):
         for i, l in enumerate(label):
             l[:, 0] = i  # add target image index for build_targets()
-        return np.stack(img, 0).astype(np.float32), np.stack(label, 0).astype(np.float32), path, np.stack(shapes, 0)
+        return IMG_TUPLE(
+            np.stack(img, 0).astype(np.float32),
+            np.stack(label, 0).astype(np.float32),
+            path,
+            np.stack(shapes, 0)
+        )
 
     @staticmethod
     def collate_fn4(img, label, path, shapes, batch_info):

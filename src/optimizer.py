@@ -14,6 +14,7 @@
 # =======================================================================================
 
 import math
+from collections import namedtuple
 
 import numpy as np
 import mindspore as ms
@@ -90,7 +91,8 @@ def get_lr(opt, hyp, per_epoch_size, resume_epoch):
             lr_pg2.append(_lr)
             if with_momentum:
                 momentum_pg.append(momentum_after_warmup)
-    return lr_pg0, lr_pg1, lr_pg2, momentum_pg, warmup_steps
+    lr_group = namedtuple('LearningRate', ['lr_pg0', 'lr_pg1', 'lr_pg2', 'momentum_pg', 'warmup_steps'])
+    return lr_group(lr_pg0, lr_pg1, lr_pg2, momentum_pg, warmup_steps)
 
 
 # Thor

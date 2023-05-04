@@ -16,6 +16,7 @@
 import copy
 import math
 import sys
+from collections import namedtuple
 
 import numpy as np
 import mindspore as ms
@@ -309,8 +310,8 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
     print('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     layers_param = []
-    for i, layer_cfg in enumerate(d['backbone'] + d['head']):  # from, number, module, args
-        c2, f, n, m, args = _parse_layer(ch, d, layer_cfg)
+    for i, layer_cfg in enumerate(d['backbone'] + d['head']):
+        c2, f, n, m, args = _parse_layer(ch, d, layer_cfg)    # ch out, from, number, module, args
         m_ = nn.SequentialCell([m(*args) for _ in range(n)]) if n > 1 else m(*args)
         t = str(m)  # module type
         num_params = sum([x.size for x in m_.get_parameters()])  # number params
@@ -361,7 +362,8 @@ def _parse_layer(ch, d, layer_cfg):
         c2 = ch[f] // args[0] ** 2
     else:
         c2 = ch[f]
-    return c2, f, n, m, args
+    layer_tuple = namedtuple('LayerTuple', ['channel_out', 'from', 'number', 'module', 'args'])
+    return layer_tuple(c2, f, n, m, args)
 
 
 def _get_layer_module(m: str):

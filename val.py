@@ -20,6 +20,7 @@ import glob
 import json
 import os
 import time
+from collections import namedtuple
 from pathlib import Path
 
 import yaml
@@ -117,23 +118,23 @@ class MetricStatistics:
         self.map = np.mean(self.ap)
 
     def get_mean_stats(self):
-        return self.metric_tuple(self.mp, self.mr, self.map50, self.map)
+        return self.mp, self.mr, self.map50, self.map
 
     def compute_ap_per_class(self, plot=False, save_dir='.', names=()):
         tp, conf, pred_class, target_cls = self.pred_stats
         result = ap_per_class(tp, conf, pred_class, target_cls, plot=plot, save_dir=save_dir, names=names)
         # result: tp, fp, p, r, f1, ap, unique_classes.astype(int)
-        self.tp, self.fp = result[:2]
-        self.precision, self.recall, self.f1 = result[2:5]
-        self.ap = result[5]
-        self.ap_cls = result[6]
+        self.tp, self.fp = result.tp, result.fp
+        self.precision, self.recall, self.f1 = result.precision, result.recall, result.f1
+        self.ap = result.ap
+        self.ap_cls = result.unique_class
         # AP@0.5, AP@0.5:0.95
         self.ap50 = self.ap[:, 0]
         self.ap = np.mean(self.ap, axis=1)
         self.set_mean_stats()
 
     def get_ap_per_class(self, idx):
-        return self.cls_stat_tuple(self.precision[idx], self.recall[idx], self.ap50[idx], self.ap[idx])
+        return self.precision[idx], self.recall[idx], self.ap50[idx], self.ap[idx]
 
 
 class TimeStatistics:
@@ -146,7 +147,8 @@ class TimeStatistics:
         return self.infer_duration + self.nms_duration + self.metric_duration
 
     def get_tuple(self):
-        return self.infer_duration, self.nms_duration, self.metric_duration, self.total_duration()
+        duration_tuple = namedtuple('Duration', ['infer', 'nms', 'metric', 'total'])
+        return duration_tuple(self.infer_duration, self.nms_duration, self.metric_duration, self.total_duration())
 
 
 def process_batch(detections, labels, iouv):
@@ -328,7 +330,8 @@ class EvalManager:
                 maps[c] = metric_stats.ap[i]
 
         model.set_train()
-        return metric_stats, maps, speed, coco_result
+        val_result = namedtuple('ValResult', ['metric_stats', 'maps', 'speed', 'coco_result'])
+        return val_result(metric_stats, maps, speed, coco_result)
 
     def _save_eval_result(self, metric_stats):
         opt = self.opt

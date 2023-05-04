@@ -441,7 +441,7 @@ for doing inference on inference server. The following are steps:
 | YOLOv5s | 640                   | 0.375                             | 0.572                          | 0.373                              | 0.57                            | 79            | 187.14                   |
 | YOLOv5m | 640                   | 0.453                             | 0.637                          | 0.451                              | 0.637                           | 133           | 111.16                   |
 | YOLOv5l | 640                   | 0.489                             | 0.675                          | 0.486                              | 0.671                           | 163           | 90.70                    |
-| YOLOv5x | 640                   |                                   |                                |                                    |                                 | 221           | 66.90                    |
+| YOLOv5x | 640                   | 0.505                             | 0.686                          | 0.506                              | 0.687                           | 221           | 66.90                    |
 
 <details>
 <summary>Note</summary>
@@ -454,7 +454,7 @@ for doing inference on inference server. The following are steps:
                                                  yolov5s.yaml                32
                                                  yolov5m.yaml                24
                                                  yolov5l.yaml                24
-                                                 yolov5x.yaml
+                                                 yolov5x.yaml                24
 ```
 
 - The result of `Epoch Time` is evaluated on 8 Ascend 910A with batch_size 32 per device.

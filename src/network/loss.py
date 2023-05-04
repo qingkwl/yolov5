@@ -14,6 +14,7 @@
 # ============================================================================
 
 import math
+from collections import namedtuple
 
 import numpy as np
 import mindspore as ms
@@ -295,7 +296,7 @@ class ComputeLoss(nn.Cell):
         g = h['fl_gamma']  # focal loss gamma
         if g > 0:
             bce_cls, bce_obj = FocalLoss(bce_pos_weight=Tensor([h['cls_pw']], ms.float32), gamma=g), \
-                             FocalLoss(bce_pos_weight=Tensor([h['obj_pw']], ms.float32), gamma=g)
+                               FocalLoss(bce_pos_weight=Tensor([h['obj_pw']], ms.float32), gamma=g)
         else:
             # Define criteria
             bce_cls = BCEWithLogitsLoss(bce_pos_weight=Tensor(np.array([h['cls_pw']]), ms.float32))
@@ -318,6 +319,7 @@ class ComputeLoss(nn.Cell):
             [-1, 0],
             [0, -1],  # j,k,l,m
         ], dtype=ms.float32)
+        self.target_tuple = namedtuple('TargetTuple', ['class', 'box', 'indices', 'anchors', 'masks'])
 
     def scatter_index_tensor(self, x, index):
         x_tmp = ops.transpose(x.reshape((-1, x.shape[-1])), (1, 0))
@@ -327,8 +329,8 @@ class ComputeLoss(nn.Cell):
     def construct(self, p, targets):  # predictions, targets
         lcls, lbox, lobj = 0., 0., 0.
 
-        tcls, tbox, indices, anchors, tmasks = self.build_targets(p,
-                                                                  targets)  # class, box, (image, anchor, gridj, gridi), anchors, mask
+        # class, box, (image, anchor, gridj, gridi), anchors, mask
+        tcls, tbox, indices, anchors, tmasks = self.build_targets(p, targets)
         tcls, tbox, indices, anchors, tmasks = ops.stop_gradient(tcls), ops.stop_gradient(tbox), \
                                                ops.stop_gradient(indices), ops.stop_gradient(anchors), \
                                                ops.stop_gradient(tmasks)
@@ -458,8 +460,10 @@ class ComputeLoss(nn.Cell):
             tcls += (c,)  # class
             tmasks += (mask_m_t,)
 
-        return ops.stack(tcls), \
-               ops.stack(tbox), \
-               ops.stack(indices), \
-               ops.stack(anch), \
-               ops.stack(tmasks)  # class, box, (image, anchor, gridj, gridi), anchors, mask
+        return self.target_tuple(
+            ops.stack(tcls),
+            ops.stack(tbox),
+            ops.stack(indices),
+            ops.stack(anch),
+            ops.stack(tmasks)  # class, box, (image, anchor, gridj, gridi), anchors, mask
+        )

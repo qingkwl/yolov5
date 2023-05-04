@@ -15,6 +15,7 @@
 
 import os
 import time
+from collections import namedtuple
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -341,7 +342,8 @@ def ap_per_class(tp, conf, pred_cls, target_cls, v5_metric=False, plot=False, sa
     eps = 1e-16
     tp = (r * nt).round()  # true positives
     fp = (tp / (p + eps) - tp).round()  # false positives
-    return tp, fp, p, r, f1, ap, unique_classes.astype(int)
+    result_tuple = namedtuple('ClassAP', ['tp', 'fp', 'precision', 'recall', 'f1', 'ap', 'unique_class'])
+    return result_tuple(tp, fp, p, r, f1, ap, unique_classes.astype(int))
 
 
 def compute_ap(recall, precision, v5_metric=False):
