@@ -39,8 +39,7 @@ from src.general import COCOEval as COCOeval
 from src.general import (Synchronize, SynchronizeManager, box_iou, check_file,
                          check_img_size, coco80_to_coco91_class, colorstr,
                          increment_path, xywh2xyxy, xyxy2xywh, WRITE_FLAGS, FILE_MODE)
-from src.metrics import (ConfusionMatrix, ap_per_class, non_max_suppression,
-                         scale_coords)
+from src.metrics import (ConfusionMatrix, ap_per_class, non_max_suppression, scale_coords)
 from src.network.yolo import Model
 from src.plots import output_to_target, plot_images, plot_study_txt
 from third_party.yolo2coco.yolo2coco import YOLO2COCO
@@ -89,14 +88,14 @@ class MetricStatistics:
 
         self.pred_json = []
         self.pred_stats = []    # (correct, conf, pred_cls, target_cls)
-        self.tp: np.ndarray = np.array(0)  # true positive
-        self.fp: np.ndarray = np.array(0)  # false positive
-        self.precision: np.ndarray = np.array(0)
-        self.recall: np.ndarray = np.array(0)
-        self.f1: np.ndarray = np.array(0)
-        self.ap: np.ndarray = np.array(0)  # average precision(AP)
-        self.ap50: np.ndarray = np.array(0)  # average precision@50(AP@50)
-        self.ap_cls: np.ndarray = np.array(0)  # average precision(AP) of each class
+        self.tp = np.array(0)  # true positive
+        self.fp = np.array(0)  # false positive
+        self.precision = np.array(0)
+        self.recall = np.array(0)
+        self.f1 = np.array(0)
+        self.ap = np.array(0)  # average precision(AP)
+        self.ap50 = np.array(0)  # average precision@50(AP@50)
+        self.ap_cls = np.array(0)  # average precision(AP) of each class
 
         self.seen = 0
         self.confusion_matrix = None

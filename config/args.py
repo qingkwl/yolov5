@@ -104,7 +104,8 @@ def get_args_train():
     parser.add_argument('--noautoanchor', type=ast.literal_eval, default=False, help='disable autoanchor check')
     parser.add_argument('--evolve', type=ast.literal_eval, default=False, help='evolve hyperparameters')
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
-    parser.add_argument('--cache_images', type=ast.literal_eval, default=False, help='cache images for faster training')
+    parser.add_argument('--cache_images', type=str, default='',
+                        help='cache images for faster training', choices=['ram', 'disk', ''])
     parser.add_argument('--image_weights', type=ast.literal_eval, default=False,
                         help='use weighted image selection for training')
     parser.add_argument('--multi_scale', type=ast.literal_eval, default=False, help='vary img-size +/- 50%%')

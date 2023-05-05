@@ -309,6 +309,7 @@ class LoadImagesAndLabels:  # for training/testing
     def get_cache_path(self):
         path = self.path
         p = path if not isinstance(path, list) else path[0]
+        p = Path(p)
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
         return cache_path
 

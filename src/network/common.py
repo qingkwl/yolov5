@@ -362,7 +362,7 @@ def _parse_layer(ch, d, layer_cfg):
         c2 = ch[f] // args[0] ** 2
     else:
         c2 = ch[f]
-    layer_tuple = namedtuple('LayerTuple', ['channel_out', 'from', 'number', 'module', 'args'])
+    layer_tuple = namedtuple('LayerTuple', ['channel_out', 'from', 'number', 'module', 'args'], rename=True)
     return layer_tuple(c2, f, n, m, args)
 
 

@@ -97,8 +97,8 @@ def batch_box_iou(batch_box1, batch_box2):
     Return intersection-over-union (Jaccard index) of boxes.
     Both sets of boxes are expected to be in (x1, y1, x2, y2) format.
     Arguments:
-        box1 (Tensor[B, N, 4])
-        box2 (Tensor[B, M, 4])
+        batch_box1 (Tensor[B, N, 4])
+        batch_box2 (Tensor[B, M, 4])
     Returns:
         iou (Tensor[B, N, M]): the NxM matrix containing the pairwise
             IoU values for every element in boxes1 and boxes2
@@ -114,7 +114,7 @@ def batch_box_iou(batch_box1, batch_box2):
 
     # inter(N,M) = (rb(N,M,2) - lt(N,M,2)).clamp(0).prod(2)
     inter = ops.minimum(batch_box1[..., 2:], batch_box2[..., 2:]) - \
-            ops.maximum(batch_box1[..., :2], batch_box2[..., :2])
+        ops.maximum(batch_box1[..., :2], batch_box2[..., :2])
     inter = inter.clip(0., None)
     inter = inter[:, :, :, 0] * inter[:, :, :, 1]
     # zhy_test
@@ -319,7 +319,6 @@ class ComputeLoss(nn.Cell):
             [-1, 0],
             [0, -1],  # j,k,l,m
         ], dtype=ms.float32)
-        self.target_tuple = namedtuple('TargetTuple', ['class', 'box', 'indices', 'anchors', 'masks'])
 
     def scatter_index_tensor(self, x, index):
         x_tmp = ops.transpose(x.reshape((-1, x.shape[-1])), (1, 0))
@@ -460,10 +459,6 @@ class ComputeLoss(nn.Cell):
             tcls += (c,)  # class
             tmasks += (mask_m_t,)
 
-        return self.target_tuple(
-            ops.stack(tcls),
-            ops.stack(tbox),
-            ops.stack(indices),
-            ops.stack(anch),
-            ops.stack(tmasks)  # class, box, (image, anchor, gridj, gridi), anchors, mask
-        )
+        # class, box, (image, anchor, gridj, gridi), anchors, mask
+        return ops.stack(tcls), ops.stack(tbox), ops.stack(indices), ops.stack(anch), ops.stack(tmasks)
+

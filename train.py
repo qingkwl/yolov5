@@ -473,7 +473,7 @@ class TrainManager:
         freeze = [f'model.{x}.' for x in freeze]
         for n, p in model.parameters_and_names():
             if any(x in n for x in freeze):
-                print('freezing %s' % n)
+                LOGGER.info(f'freezing {n}')
                 p.requires_grad = False
         return model
 

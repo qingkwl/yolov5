@@ -7,19 +7,20 @@
 - [YOLOv5说明](#[YOLOv5说明](#目录))
 - [模型架构](#[模型架构](#目录))
 - [数据集](#[数据集](#目录))
-  - [数据下载](#数据下载)
-  - [数据组织结构](#数据组织结构)
-  - [数据转换](#数据转换)
+  - [数据下载](#[数据下载](#目录))
+  - [数据组织结构](#[数据组织结构](#目录))
+  - [数据转换](#[数据转换](#目录))
 - [快速入门](#[快速开始](#目录))
 - [脚本说明](#[脚本说明](#目录))
     - [脚本和示例代码](#[脚本和示例代码](#目录))
     - [脚本参数](#[脚本参数](#目录))
     - [训练过程](#[训练过程](#目录))
-        - [训练](#训练)
-        - [分布式训练](#分布式训练)
+        - [训练](#[训练](#目录))
+        - [分布式训练](#[分布式训练](#目录))
     - [验证过程](#[验证过程](#目录))
-        - [验证](#验证)
+        - [验证](#[验证](#目录))
     - [推理过程](#[推理过程](#目录))
+        - [环境](#[环境](#目录))
         - [推理](#[推理](#目录))
 - [模型说明](#[模型说明](#目录))
 - [性能](#[性能](#目录))
@@ -48,7 +49,7 @@ CSPDarknet53 包含了 5 个 CSP 模块，CSP 模块中使用了 kernel size 为
 
 `YOLOv5` 使用 `COCO` 数据集的图片，以及 `YOLO` 格式的标注文件进行训练。
 
-## 数据下载
+## [数据下载](#目录)
 
 数据集:
 
@@ -69,7 +70,7 @@ CSPDarknet53 包含了 5 个 CSP 模块，CSP 模块中使用了 kernel size 为
 | YOLOv5l | coco2017labels-segments |
 | YOLOv5x | coco2017labels-segments |
 
-## 数据组织结构
+## [数据组织结构](#目录)
 
 数据下载完成后，需要按照如下方式组织数据。其中 `images` 文件夹存放图片，
 `labels` 文件夹存放对应的标签。`train2017.txt`等文本文件中存放了对应
@@ -93,7 +94,7 @@ YOLO
 └── test2017.txt
 ```
 
-## 数据转换
+## [数据转换](#目录)
 
 如果使用自定义的 `COCO` 格式或者 `labelme` 格式的数据集，可以使用我们提供的转换脚本转换成 `YOLO` 格式。
 
@@ -108,7 +109,7 @@ YOLO
 <details>
 <summary>安装</summary>
 
-按照 `MindSpore` [官方网站](https://www.mindspore.cn/install)的指引安装 `mindspore` 模块。
+参照 `MindSpore` [官方网站](https://www.mindspore.cn/install)的指引安装 `mindspore` 模块。
 之后使用以下命令安装其他所需模块：
 
 ```shell
@@ -172,10 +173,10 @@ python val.py \
   --batch_size=32 > log.txt 2>&1 &
 ```
 
-`rect` 开关在某些时候能够增加推理的精度，官方仓库公布的推理结果启用了该开关，
+`rect` 开关在某些时候能够增加推理的精度，官方仓库公布的[推理结果](https://github.com/ultralytics/yolov5#pretrained-checkpoints)启用了该配置，
 当您需要对比结果时请注意该差异。
 
-或者您也可以使用 `shell` 脚本进行评估：
+您也可以使用 `shell` 脚本进行评估：
 
 ```bash
 # Run distributed evaluation by shell script
@@ -324,7 +325,7 @@ optional arguments:
 
 ## [训练过程](#目录)
 
-### 训练
+### [训练](#目录)
 
 对于 Ascend 设备，可以使用以下命令进行单卡训练：
 
@@ -344,7 +345,7 @@ python train.py \
 
 对于自定义数据集，您可能需要微调模型的超参数。以上 `Python` 命令会在后台运行。
 
-### 分布式训练
+### [分布式训练](#目录)
 
 分布式训练脚本示例：
 
@@ -368,7 +369,7 @@ bash mpirun_train.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.ya
 
 ## [验证过程](#目录)
 
-### 验证
+### [验证](#目录)
 
 在运行以下命令之前，请检查用于推理的 Checkpoint 文件是否存在，名称是否正确。
 
@@ -407,6 +408,24 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 
 ## [推理过程](#目录)
 
+### [环境](#目录)
+
+在昇腾社区下载[MindX SDK 社区版](https://www.hiascend.com/zh/software/mindx-sdk/community)网站中下载对应架构类型版本的`Ascend-mindxsdk-mxmanufacture`软件包，
+推荐下载`run`类型的软件包，当前适配的版本为 `3.0`。
+
+下载完成后，先确定配置好已经配置昇腾框架相关的环境变量，然后使用命令：
+
+```shell
+bash Ascend-mindxsdk-mxmanufacture_xxx.run --install
+```
+
+安装 `MindX` 软件包。安装完成后可以使用 `python -c "import mindx"` 测试是否成功安装。
+
+如果碰到 `libgobject.so.2` 相关的错误，需要设置 `libffi.so.7` 环境变量：
+
+- 使用 `find / -nane "libffi.so.7"` 查找该链接库位置；
+- 使用 `export LD_PRELOAD=/path/to/libffi.so.7` 配置环境变量。
+
 ### [推理](#目录)
 
 训练获得的模型 `ckpt` 可用 `atc` 工具转换为 `om` 格式的模型，
@@ -418,6 +437,8 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
   `/usr/local/Ascend/latest/atc/bin/atc --model=yolov5s.air --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
   其中 `--soc_version` 可通过 `npu-smi info` 指令查看，支持 `Ascend310`，`Ascend310P3` 等；
 3. 通过 `infer.py` 脚本执行推理：`python infer.py --batch_size 1 --om yolov5s.om`
+
+需要注意的是，由于当前`om`格式暂不支持动态`shape`推理，因此无法启用`rect`配置，故推理精度相较`ckpt`格式启用了`rect`配置时偏低。
 
 # [模型说明](#目录)
 
@@ -442,11 +463,12 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
                                                  yolov5s.yaml               32
                                                  yolov5m.yaml               24
                                                  yolov5l.yaml               24
-                                                 yolov5x.yaml
+                                                 yolov5x.yaml               24
 ```
 
 - `Epoch Time` 为 Ascend 910A 机器 8 卡测试结果，每张卡的 batch_size 为 32。
 - `Throughput` 为 Ascend 910A 的单卡吞吐率。
 - **mAP<sup>val</sup>** 在单模型单尺度上计算，数据集使用 [COCO val2017](http://cocodataset.org) 。<br>关键参数为 `--img_size 640 --conf_thres 0.001 --iou_thres 0.65`。
+- 当数据处理为性能瓶颈时，可以设置 `--cache_images` 为 `ram` 或者 `disk`，提升数据处理性能。注意 `ram` 可能会导致 out of memory。
 
 </details>
