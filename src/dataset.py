@@ -81,10 +81,6 @@ def verify_image_label(args):
     # Verify one image-label pair
     img_file, lb_file, prefix = args
     nm, nf, ne, nc, msg, segments = 0, 0, 0, 0, '', []  # number (missing, found, empty, corrupt), message, segments
-    img_label = namedtuple(
-        'ImageLabel',
-        ['img_file', 'label', 'shape', 'segments', 'num_missing', 'num_found', 'num_empty', 'num_corrupt', 'message']
-    )
     try:
         # verify images
         im = Image.open(img_file)
@@ -126,11 +122,11 @@ def verify_image_label(args):
         else:
             nm = 1  # label missing
             lb = np.zeros((0, 5), dtype=np.float32)
-        return img_label(img_file, lb, shape, segments, nm, nf, ne, nc, msg)
+        return img_file, lb, shape, segments, nm, nf, ne, nc, msg
     except Exception as e:
         nc = 1
         msg = f'{prefix}WARNING ⚠️ {img_file}: ignoring corrupt image/label: {e}'
-        return img_label(None, None, None, None, nm, nf, ne, nc, msg)
+        return None, None, None, None, nm, nf, ne, nc, msg
 
 
 def img2label_paths(img_paths):
@@ -196,7 +192,7 @@ class LoadImagesAndLabels:  # for training/testing
 
         # Check cache
         self.label_files = img2label_paths(self.img_files)  # labels
-        cache_path = self.get_cache_path()
+        cache_path = self.get_cache_path()  # TODO: Fix image load error
         try:
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
             try:
