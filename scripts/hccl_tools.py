@@ -14,13 +14,16 @@
 # ============================================================================
 """generate hccl config file script"""
 import os
+import stat
 import sys
 import json
 import socket
 from argparse import ArgumentParser
 from typing import Dict, Any
 
-from src.general import WRITE_FLAGS, FILE_MODE
+
+WRITE_FLAGS = os.O_WRONLY | os.O_CREAT    # Default write flags
+FILE_MODE = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP   # Default file authority mode
 
 
 def parse_args():
