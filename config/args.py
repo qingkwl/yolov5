@@ -100,6 +100,7 @@ def get_args_train():
                         help='the maximum number of save checkpoint, delete previous checkpoints if '
                              'the number of saved checkpoints are larger than this value')
 
+    parser.add_argument('--distributed_train', type=ast.literal_eval, default=False, help='Distribute train or not ')
     parser.add_argument('--resume', type=ast.literal_eval, default=False, help='resume specified checkpoint training')
     parser.add_argument('--nosave', type=ast.literal_eval, default=False, help='only save final checkpoint')
     parser.add_argument('--notest', type=ast.literal_eval, default=False, help='only test final epoch')
@@ -154,7 +155,7 @@ def get_args_test():
     parser.copy_args(basic_parser)
     basic_infer_parser = get_args_infer_basic()
     parser.copy_args(basic_infer_parser)
-    parser.add_argument('--is_distributed', type=ast.literal_eval, default=False, help='Distribute test or not')
+    parser.add_argument('--distributed_eval', type=ast.literal_eval, default=False, help='Distribute test or not')
     parser.add_argument('--weights', type=str, default='./EMA_yolov5s_300.ckpt', help='model.ckpt path(s)')
     parser.add_argument('--rect', type=ast.literal_eval, default=False, help='rectangular training')
     parser.add_argument('--save_txt', type=ast.literal_eval, default=False, help='save results to *.txt')

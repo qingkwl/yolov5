@@ -238,7 +238,8 @@ def train(hyp, opt):
         rect = False
         val_dataloader, val_dataset, _ = create_dataloader(test_path, imgsz, batch_size, gs, opt,
                                                            epoch_size=1, pad=0.5, rect=rect,
-                                                           rank=rank, rank_size=rank_size,
+                                                           rank=rank if opt.distributed_eval else 0,
+                                                           rank_size=rank_size if opt.distributed_eval else 1,
                                                            num_parallel_workers=4 if rank_size > 1 else 8,
                                                            shuffle=False,
                                                            drop_remainder=False,
@@ -418,7 +419,7 @@ def main():
         context.set_context(device_id=device_id)
     # Distribute Train
     rank, rank_size, parallel_mode = 0, 1, ParallelMode.STAND_ALONE
-    if opt.is_distributed:
+    if opt.distributed_train:
         init()
         rank, rank_size, parallel_mode = get_rank(), get_group_size(), ParallelMode.DATA_PARALLEL
         context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size,
