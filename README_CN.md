@@ -304,7 +304,7 @@ Major parameters in train.py are:
 
 optional arguments:
   --ms_strategy           Training strategy. Default: "StaticShape"
-  --is_distributed        Distribute training or not. Default: False
+  --distributed_train     Distributed training or not. Default: False
   --device_target         Device where the code will be executed. Default: "Ascend"
   --cfg                   Model architecture yaml config file path. Default: "./config/network/yolov5s.yaml"
   --data                  Dataset yaml config file path. Default: "./config/data/data.yaml"
@@ -323,6 +323,7 @@ optional arguments:
   --run_eval              Whether do evaluation after a training epoch. Default: True
   --eval_start_epoch      Epoch index after which model will do evaluation. Default: 200
   --eval_epoch_interval   Epoch interval to do evaluation. Default: 10
+  --distributed_eval      Distributed evaluation or not. Default: False
 ```
 
 

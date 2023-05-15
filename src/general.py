@@ -512,6 +512,8 @@ class SynchronizeManager:
         return self.sync_file
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if not self.distributed:
+            return
         if self.rank == 0:
             if os.path.exists(self.sync_file):
                 LOGGER.info(f"Delete sync file {self.sync_file}")

@@ -117,7 +117,7 @@ class TrainOneStepGrad(nn.Cell):
             self.loss_scaler = StaticLossScaler(sens)
         self.optimizer = optimizer
         self.optimizer.set_train(True)
-        if opt.is_distributed:
+        if opt.distributed_train:
             mean = context.get_auto_parallel_context("gradients_mean")
             degree = context.get_auto_parallel_context("device_num")
             self.grad_reducer = nn.DistributedGradReducer(self.optimizer.parameters, mean, degree)
