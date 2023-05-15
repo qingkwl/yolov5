@@ -94,7 +94,7 @@ class MetricStatistics:
         self.f1: np.ndarray = np.array(0)
         self.ap: np.ndarray = np.array(0)  # average precision(AP)
         self.ap50: np.ndarray = np.array(0)  # average precision@50(AP@50)
-        self.ap_cls: np.ndarray = np.array(0)  # average precision(AP) of each class
+        self.ap_cls: np.ndarray | list = []  # average precision(AP) of each class
 
         self.seen = 0
         self.confusion_matrix = None
@@ -438,7 +438,7 @@ class TestManager:
         metric_stats.pred_stats = [np.concatenate(x, 0) for x in zip(*metric_stats.pred_stats)]  # to numpy
         pred_stats_file = os.path.join(self.save_dir, f"pred_stats_{self.opt.rank}.npy")
         np.save(pred_stats_file, np.array(metric_stats.pred_stats, dtype=object), allow_pickle=True)
-        if opt.is_distributed:
+        if opt.distributed_eval:
             metric_stats.seen = self.reduce_sum(ms.Tensor(np.array(metric_stats.seen, dtype=np.int32))).asnumpy()
             self.synchronize()
         if self.opt.rank != 0:
@@ -610,17 +610,18 @@ class TestManager:
         pred_json_path = os.path.join(self.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
         LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
         self.save_json(metric_stats.pred_json, pred_json_path)
-        with SynchronizeManager(opt.rank, opt.rank_size, opt.is_distributed, self.project_dir):
+        with SynchronizeManager(opt.rank, opt.rank_size, opt.distributed_eval, self.project_dir):
             result = COCOResult()
             if opt.rank == 0:
-                path, merged_results = self._merge_pred_json(prefix=ckpt_name)
+                if opt.distributed_eval:
+                    pred_json_path, merged_results = self._merge_pred_json(prefix=ckpt_name)
                 if opt.result_view or opt.recommend_threshold:
                     try:
-                        self.visualize_coco(anno_json, path)
+                        self.visualize_coco(anno_json, pred_json_path)
                     except Exception:
                         LOGGER.exception("Failed when visualize evaluation result.")
                 try:
-                    pred_json = merged_results if opt.is_distributed else metric_stats.pred_json
+                    pred_json = merged_results if opt.distributed_eval else metric_stats.pred_json
                     result = self.eval_coco(anno_json, pred_json)
                     LOGGER.info(f"\nCOCO mAP:\n{result.stats_str}")
                 except Exception:
@@ -632,7 +633,7 @@ class TestManager:
         dataset_cfg = self.dataset_cfg
         opt = self.opt
         matrix = ms.Tensor(self.confusion_matrix.matrix)
-        if opt.is_distributed:
+        if opt.distributed_eval:
             matrix = AllReduce()(matrix).asnumpy()
         self.confusion_matrix.matrix = matrix
         if opt.rank == 0:
@@ -655,7 +656,7 @@ def main():
         context.set_context(device_id=device_id)
     rank, rank_size, parallel_mode = 0, 1, ParallelMode.STAND_ALONE
     # Distribute Test
-    if opt.is_distributed:
+    if opt.distributed_eval:
         init()
         rank, rank_size, parallel_mode = get_rank(), get_group_size(), ParallelMode.DATA_PARALLEL
     context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size)

@@ -73,7 +73,8 @@ do
         --data=$DATA_PATH \
         --hyp=$HYP_PATH \
         --device_target=Ascend \
-        --is_distributed=True \
+        --distributed_train=True \
+        --distributed_eval=True \
         --epochs=300 \
         --batch_size=32 \
         --img_size=640 \

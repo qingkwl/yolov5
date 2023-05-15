@@ -74,7 +74,7 @@ do
         --data=$DATA_PATH \
         --hyp=$HYP_PATH \
         --device_target=Ascend \
-        --is_distributed=True \
+        --distributed_eval=True \
         --img_size=640 \
         --conf=0.001 \
         --iou_thres=0.65 \

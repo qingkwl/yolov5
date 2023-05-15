@@ -44,7 +44,8 @@ mpirun --allow-run-as-root -n "$DEVICE_NUM" \
        --output-filename log_output \
        --merge-stderr-to-stdout \
 python train.py \
-        --is_distributed="$distributed" \
+        --distributed_train="$distributed" \
+        --distributed_eval="$distributed" \
         --clip_grad=False \
         --optimizer="momentum" \
         --cfg="$CONFIG_PATH" \
