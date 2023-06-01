@@ -316,7 +316,8 @@ def train(hyp, opt):
 
     data_size = dataloader.get_dataset_size()
     jit = True if opt.ms_mode.lower() == "graph" else False
-    sink_process = ms.data_sink(train_step, dataloader, steps=data_size * epochs, sink_size=data_size, jit=jit)
+    jit = ms.JitConfig()
+    sink_process = ms.data_sink(train_step, dataloader, sink_size=data_size, jit_config=jit)
 
     summary_dir = os.path.join(save_dir, opt.summary_dir, f"rank_{rank}")
     summary_interval = opt.summary_interval  # Unit: epoch
