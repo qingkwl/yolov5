@@ -98,9 +98,12 @@ def kmean_anchors(dataset='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen
     thr = 1 / thr
 
     def metric(k, wh):  # compute metrics
-        r = wh[:, None] / k[None]
-        x = np.minimum(r, 1 / r).min(2)  # ratio metric
+        k_ms = ms.Tensor(k, dtype=ms.float32)
+        wh_ms = ms.Tensor(wh, dtype=ms.float32)
+        r = ms.ops.expand_dims(wh_ms, 1) / ms.ops.expand_dims(k_ms, 0)
+        x = ms.ops.minimum(r, 1 / r).min(2)  # ratio metric
         # x = wh_iou(wh, torch.tensor(k))  # iou metric
+        x = x.asnumpy()
         return x, x.max(1)[0]  # x, best_x
 
     def anchor_fitness(k):  # mutation fitness
@@ -121,8 +124,10 @@ def kmean_anchors(dataset='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen
         return k
 
     if isinstance(dataset, str):  # *.yaml file
+        from src.general import process_dataset_cfg
         with open(dataset, errors='ignore') as f:
-            data_dict = yaml.safe_load(f)  # model dict
+            data_dict = yaml.safe_load(f)
+        data_dict = process_dataset_cfg(data_dict)
         from src.dataset import LoadImagesAndLabels
         dataset = LoadImagesAndLabels(data_dict['train'], augment=True, rect=True)
 

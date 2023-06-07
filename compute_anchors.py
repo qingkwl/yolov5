@@ -1,13 +1,13 @@
 import argparse
 import ast
 
+import sklearn  # For avoid load error of some libraries
+
 from src.autoanchor import kmean_anchors
 
 def compute_anchors(args):
     anchors = kmean_anchors(args.dataset, args.num_anchors, args.img_size, args.threshold,
                             args.gen, args.verbose)
-    with open("anchors.txt", "w") as file:
-        file.write(str(anchors))
 
 
 if __name__ == "__main__":
