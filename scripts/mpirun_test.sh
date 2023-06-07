@@ -44,7 +44,7 @@ env > env.log
 mpirun --allow-run-as-root -n "$DEVICE_NUM" \
        --output-filename log_output \
        --merge-stderr-to-stdout \
-python test.py \
+python val.py \
         --distributed_eval="$distributed" \
         --weights="$WEIGHTS" \
         --cfg="$CONFIG_PATH" \

@@ -15,11 +15,11 @@
 
 from __future__ import annotations
 
-import os
-import yaml
 from dataclasses import dataclass
 from typing import Union
 from pathlib import Path
+import os
+import yaml
 
 from src.general import LOGGER
 
@@ -49,7 +49,7 @@ def join_path(*args: PATH) -> PATH:
     return joined_path
 
 
-def empty(path: PATH) -> bool:
+def empty_path(path: PATH) -> bool:
     if isinstance(path, str) and (not path):
         return True
     return False
@@ -64,7 +64,7 @@ def exists(path: PATH) -> bool:
 
 
 def valid_path(path: PATH) -> bool:
-    return (not empty(path)) and exists(path)
+    return (not empty_path(path)) and exists(path)
 
 
 def mkdir(dir_path: PATH, exist_ok=True) -> None:
@@ -79,7 +79,7 @@ class BaseManager:
         self.logger = LOGGER
 
     def _check_dir(self, dir_path: PATH, strict: bool = True) -> bool:
-        if empty(dir_path):
+        if empty_path(dir_path):
             if strict:
                 raise FileNotFoundError("The given 'dir_path' is empty.")
             self.logger.warning("The given 'dir_path' is empty.")
@@ -98,7 +98,7 @@ class BaseManager:
         return True
 
     def _check_file(self, file_path: PATH, strict: bool = True) -> bool:
-        if empty(file_path):
+        if empty_path(file_path):
             if strict:
                 raise FileNotFoundError("The given 'file_path' is empty.")
             self.logger.warning("The given 'file_path' is empty.")
@@ -138,7 +138,7 @@ class COCOArgs(BaseArgs):
 
     def process_path(self):
         self.root = join_path(self.root)
-        if empty(self.root):
+        if empty_path(self.root):
             raise ValueError("The 'root' must be non-empty string.")
         self.train_dir = join_path(self.root, self.train_dir)
         self.val_dir = join_path(self.root, self.val_dir)
@@ -153,7 +153,7 @@ class COCOArgs(BaseArgs):
 
     def make_dirs(self):
         for folder in (self.root, self.train_dir, self.val_dir, self.test_dir, self.anno_dir, self.data_dir):
-            if not empty(folder):
+            if not empty_path(folder):
                 mkdir(folder)
 
 
@@ -174,17 +174,17 @@ class YOLOArgs(BaseArgs):
 
     def process_path(self):
         self.root = join_path(self.root)
-        if empty(self.root):
+        if empty_path(self.root):
             raise ValueError("The 'root' must be non-empty string.")
         self.train_anno = join_path(self.root, self.train_anno)
         self.val_anno = join_path(self.root, self.val_anno)
         self.test_anno = join_path(self.root, self.test_anno)
         self.data_anno = join_path(self.root, self.data_anno)
-        if isinstance(self.names, str) or isinstance(self.names, Path):
+        if isinstance(self.names, (str, Path)):
             self.names = join_path(self.root, self.names)
 
     def make_dirs(self):
-        if not empty(self.root):
+        if not empty_path(self.root):
             mkdir(self.root)
         root = Path(self.root)
         mkdir(root / "labels")
@@ -205,7 +205,7 @@ class LabelmeArgs(BaseArgs):
 
     def process_path(self):
         self.root = join_path(self.root)
-        if empty(self.root):
+        if empty_path(self.root):
             raise ValueError("The 'root' must be non-empty string.")
         self.train_dir = join_path(self.root, self.train_dir)
         self.val_dir = join_path(self.root, self.val_dir)
@@ -214,5 +214,5 @@ class LabelmeArgs(BaseArgs):
 
     def make_dirs(self):
         for folder in (self.root, self.train_dir, self.val_dir, self.test_dir, self.data_dir):
-            if not empty(folder):
+            if not empty_path(folder):
                 mkdir(folder)

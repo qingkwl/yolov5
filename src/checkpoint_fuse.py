@@ -40,10 +40,14 @@ def fuse_checkpoint(opt):
     save_checkpoint(new_params_list, ms_ckpt)
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(prog='checkpoint_fuse.py')
     parser.add_argument('--num', type=int, default=10, help='fuse checkpoint num')
     parser.add_argument('--start', type=int, default=291, help='Distribute train or not')
     parser.add_argument('--base_name', type=str, default='./yolov5', help='source checkpoint file base')
     opt = parser.parse_args()
     fuse_checkpoint(opt)
+
+
+if __name__ == '__main__':
+    main()

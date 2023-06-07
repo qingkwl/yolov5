@@ -1,24 +1,12 @@
 import os
-import warnings
-from pathlib import Path
-
-import pkg_resources as pkg
-
-import cv2
-from src.general import colorstr
-# from utils.loggers.clearml.clearml_utils import ClearmlLogger
-# from utils.loggers.wandb.wandb_utils import WandbLogger
-from src.plots import plot_images, plot_labels, plot_results
-
-import mindspore as ms
 from mindspore import SummaryRecord
 
 LOGGERS = ('csv', 'ms')  # ('csv', 'tb', 'wandb', 'clearml', 'comet')  # *.csv, TensorBoard, Weights & Biases, ClearML
-RANK = int(os.getenv('RANK_ID', -1))
+RANK = int(os.getenv('RANK_ID', "-1"))
 
-wandb = None
-clearml = None
-comet_ml = None
+WANDB = None
+CLEARML = None
+COMET_ML = None
 
 
 class SummaryLoggers:
@@ -50,6 +38,7 @@ class SummaryLoggers:
         for k in LOGGERS:
             setattr(self, k, None)  # init empty logger dictionary
         self.csv = True  # always log to csv
+        self.ms = None
 
     def __enter__(self):
         if 'tb' in self.include and self.opt.summary:
@@ -98,4 +87,3 @@ class SummaryLoggers:
 
     def on_params_update(self, params: dict):
         pass
-

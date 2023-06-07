@@ -52,6 +52,7 @@ YOLO
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 from typing import Any, Optional, Union
@@ -61,7 +62,8 @@ import cv2
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
-from src.data.base import PATH, BaseArgs, BaseManager, empty, exists, valid_path, COCOArgs, YOLOArgs
+from src.data.base import PATH, BaseArgs, BaseManager, empty_path, exists, valid_path, COCOArgs, YOLOArgs
+from src.general import WRITE_FLAGS, FILE_MODE
 
 
 class YOLOManager(BaseManager):
@@ -77,18 +79,26 @@ class YOLOManager(BaseManager):
         self._check_args()
         self.logger.info(f"YOLO Dataset Args:\n {self.args}")
 
-    def reset(self) -> None:
-        # Reset some class members for afterwards conversion
-        self.ann_id = 1
-
     @staticmethod
     def read_txt(txt_path: PATH) -> list[str]:
         with open(txt_path, 'r', encoding='utf-8') as f:
             data = list(map(lambda x: x.rstrip('\n'), f))
         return data
 
+    def reset(self) -> None:
+        # Reset some class members for afterwards conversion
+        self.ann_id = 1
+
+    def convert(self, target_format: str, data_config: BaseArgs, copy_images: bool = True) -> None:
+        target_format = target_format.lower()
+        self._validate_dataset()
+        if target_format == "coco":
+            self._to_coco(data_config, copy_images)
+        else:
+            raise ValueError(f"The target format [{target_format}] is not supported.")
+
     def _get_class_names(self) -> dict[int, str]:
-        if isinstance(self.args.names, str) or isinstance(self.args.names, Path):
+        if isinstance(self.args.names, (str, Path)):
             categories = self.read_txt(self.args.names)
         elif isinstance(self.args.names, list):
             categories = self.args.names
@@ -102,10 +112,11 @@ class YOLOManager(BaseManager):
         return {idx: idx for idx in range(len(self.class_names))}
 
     def _check_args(self) -> None:
-        if empty(self.args.root) or not exists(self.args.root):
+        if empty_path(self.args.root) or not exists(self.args.root):
             raise FileNotFoundError(f"The root directory [{self.args.root}] not found.")
 
-    def _count_lines(self, filename: Path) -> int:
+    @staticmethod
+    def _count_lines(filename: Path) -> int:
         f = open(filename, 'rb')
         lines = 0
         buf_size = 1024 * 1024
@@ -118,15 +129,8 @@ class YOLOManager(BaseManager):
         f.close()
         return lines
 
-    def convert(self, target_format: str, data_config: BaseArgs, copy_images: bool = True) -> None:
-        target_format = target_format.lower()
-        self._validate_dataset()
-        if target_format == "coco":
-            self._to_coco(data_config, copy_images)
-        else:
-            raise ValueError(f"The target format [{target_format}] is not supported.")
-
-    def _get_box_info(self, vertex_info: list[str], height: int, width: int):
+    @staticmethod
+    def _get_box_info(vertex_info: list[str], height: int, width: int):
         cx, cy, w, h = [float(i) for i in vertex_info]
 
         cx = cx * width
@@ -169,14 +173,10 @@ class YOLOManager(BaseManager):
                     self.logger.warning(f"Label [{label_path}] not found.")
                     continue
                 _ann = self._get_annotations(label_path, img_info)
-                if len(_ann):
+                if not empty_path(_ann):
                     _annotations.extend(_ann)
-        # TODO: Initialize dataset information for converting to COCO
         json_data = {
-            # 'info': self.info,
             'images': _images,
-            # 'licenses': self.licenses,
-            # 'type': self.type,
             'annotations': _annotations,
             'categories': self.category_dict,
         }
@@ -245,7 +245,7 @@ class YOLOManager(BaseManager):
 
         def convert_data(anno_file: PATH, _target_dir: Optional[PATH], json_path: PATH):
             anno_data = self._convert_to_coco(anno_file, _target_dir)
-            with open(json_path, 'w', encoding='utf-8') as f:
+            with os.fdopen(os.open(json_path, WRITE_FLAGS, FILE_MODE), 'w', encoding='utf-8') as f:
                 json.dump(anno_data, f, ensure_ascii=False)
 
         if valid_path(self.args.data_anno):
@@ -290,9 +290,6 @@ class YOLOManager(BaseManager):
                                 f"because the previous check not passed.")
 
     def _validate_category(self) -> None:
-        # if empty(self.args.categories) or not exists(self.args.categories):
-        #     raise FileNotFoundError(f"Training images directory {self.args.categories} not found.")
-        # TODO: Check category ids consistency
         pass
 
     def _validate_dataset(self) -> None:

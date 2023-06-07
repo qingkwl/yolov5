@@ -36,6 +36,7 @@ COCO
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import random
 from pathlib import Path
@@ -45,7 +46,8 @@ from tqdm.contrib.logging import logging_redirect_tqdm
 import numpy as np
 from pycocotools.coco import COCO
 
-from src.data.base import PATH, BaseArgs, BaseManager, empty, exists, valid_path, COCOArgs, YOLOArgs
+from src.data.base import PATH, BaseArgs, BaseManager, empty_path, exists, valid_path, COCOArgs, YOLOArgs
+from src.general import WRITE_FLAGS, FILE_MODE
 
 
 class COCOManager(BaseManager):
@@ -63,9 +65,31 @@ class COCOManager(BaseManager):
         self._check_args()
         self.logger.info(f"COCO Dataset Args:\n {self.args}")
 
-    def _check_args(self) -> None:
-        if empty(self.args.root) or not exists(self.args.root):
-            raise FileNotFoundError(f"The root directory [{self.args.root}] not found.")
+    @staticmethod
+    def _get_box(img, ann) -> np.ndarray:
+        h, w = img['height'], img['width']
+        # The COCO box format is [top left x, top left y, width, height]
+        box = np.array(ann['bbox'], dtype=np.float64)
+        box[:2] += box[2:] / 2  # xy top-left corner to center
+        box[[0, 2]] /= w  # normalize x
+        box[[1, 3]] /= h  # normalize y
+        return box
+
+    @staticmethod
+    def _check_continuity(arr: list) -> bool:
+        return all(a + 1 == b for a, b in zip(arr, arr[1:]))
+
+    @staticmethod
+    def _min_index(arr1: np.ndarray, arr2: np.ndarray):
+        """Find a pair of indexes with the shortest distance.
+        Args:
+            arr1 (np.ndarray): (N, 2).
+            arr2 (np.ndarray): (M, 2).
+        Return:
+            a pair of indexes(tuple).
+        """
+        dis = ((arr1[:, None, :] - arr2[None, :, :]) ** 2).sum(-1)
+        return np.unravel_index(np.argmin(dis, axis=None), dis.shape)
 
     def convert(self,
                 target_format: str,
@@ -91,6 +115,23 @@ class COCOManager(BaseManager):
             self._to_labelme(data_config)
         else:
             raise ValueError(f"The target format [{target_format}] is not supported.")
+
+    def split(self) -> None:
+        if empty_path(self.args.data_dir) or not exists(self.args.data_dir):
+            raise FileNotFoundError(f"Directory [{self.args.data_dir}] not found.")
+        src_dir = Path(self.args.data_dir)
+        train_coco, val_coco = self._split_annotations()
+        with os.fdopen(os.open(self.args.train_anno, WRITE_FLAGS, FILE_MODE), "w") as file:
+            json.dump(train_coco, file, indent=4)
+        with os.fdopen(os.open(self.args.val_anno, WRITE_FLAGS, FILE_MODE), "w") as file:
+            json.dump(val_coco, file, indent=4)
+        self._copy_images(src_dir, "train")
+        self._copy_images(src_dir, "val")
+        self._validate_dataset()
+
+    def _check_args(self) -> None:
+        if empty_path(self.args.root) or not exists(self.args.root):
+            raise FileNotFoundError(f"The root directory [{self.args.root}] not found.")
 
     def _to_yolo(self,
                  data_config: BaseArgs,
@@ -125,17 +166,18 @@ class COCOManager(BaseManager):
             category_map = {old_id: new_id for new_id, old_id in enumerate(category_ids)}
             img2ann = coco.imgToAnns
             # Write labels file
-            with logging_redirect_tqdm(loggers=[self.logger]),\
-                    open(target_dir / f"{folder_name}.txt", "w") as txt:
+            with logging_redirect_tqdm(loggers=[self.logger]), \
+                    os.fdopen(os.open(target_dir / f"{folder_name}.txt", WRITE_FLAGS, FILE_MODE), "w") as txt:
                 for img_id, anns in tqdm(img2ann.items(), desc=f'Annotations {json_file}'):
                     img = _images[img_id]
                     file_name = img['file_name']
                     new_img_name = f'{img_id:012d}.jpg'
                     bboxes, segments = self._get_boxes(img, anns, category_map, use_segments)
                     # Write
-                    with open((label_folder / file_name).with_suffix('.txt'), 'a') as file:
-                        for i in range(len(bboxes)):
-                            line = *(segments[i] if use_segments else bboxes[i]),  # cls, box or segments
+                    with os.fdopen(os.open((label_folder / file_name).with_suffix('.txt'),
+                                           WRITE_FLAGS, FILE_MODE), 'a') as file:
+                        for i, box in enumerate(bboxes):
+                            line = (*(segments[i] if use_segments else box),)  # cls, box or segments
                             file.write(('%g ' * len(line)).rstrip() % line + '\n')
                     dst_img_path = image_folder / new_img_name
                     if copy_images:
@@ -161,21 +203,8 @@ class COCOManager(BaseManager):
     def _to_labelme(self, data_config: BaseArgs):
         pass
 
-    def split(self) -> None:
-        if empty(self.args.data_dir) or not exists(self.args.data_dir):
-            raise FileNotFoundError(f"Directory [{self.args.data_dir}] not found.")
-        src_dir = Path(self.args.data_dir)
-        train_coco, val_coco = self._split_annotations()
-        with open(self.args.train_anno, "w") as file:
-            json.dump(train_coco, file, indent=4)
-        with open(self.args.val_anno, "w") as file:
-            json.dump(val_coco, file, indent=4)
-        self._copy_images(src_dir, "train")
-        self._copy_images(src_dir, "val")
-        self._validate_dataset()
-
     def _split_annotations(self) -> tuple[dict, dict]:
-        if empty(self.args.data_anno) or not exists(self.args.data_anno):
+        if empty_path(self.args.data_anno) or not exists(self.args.data_anno):
             raise FileNotFoundError(f"The annotation file [{self.args.data_anno}] not found.")
         train_coco, val_coco = {}, {}
         with open(self.args.data_anno, "r") as file:
@@ -211,7 +240,7 @@ class COCOManager(BaseManager):
         """
         if isinstance(src_dir, str) and (not src_dir):
             self.logger.warning("The given 'src_dir' is empty.")
-            return None
+            return
         src_dir = Path(src_dir)
         if mode == "train":
             ann_file, dst_dir = self.args.train_anno, self.args.train_dir
@@ -233,17 +262,6 @@ class COCOManager(BaseManager):
             for img in tqdm(images):
                 name = img["file_name"]
                 shutil.copy(src_dir / name, dst_dir)
-
-    def _min_index(self, arr1: np.ndarray, arr2: np.ndarray):
-        """Find a pair of indexes with the shortest distance.
-        Args:
-            arr1 (np.ndarray): (N, 2).
-            arr2 (np.ndarray): (M, 2).
-        Return:
-            a pair of indexes(tuple).
-        """
-        dis = ((arr1[:, None, :] - arr2[None, :, :]) ** 2).sum(-1)
-        return np.unravel_index(np.argmin(dis, axis=None), dis.shape)
 
     def _merge_multi_segment(self, segments):
         """Merge multi segments to one list.
@@ -293,9 +311,6 @@ class COCOManager(BaseManager):
                         s.append(segments[i][nidx:])
         return s
 
-    def _check_continuity(self, arr: list) -> bool:
-        return all(a + 1 == b for a, b in zip(arr, arr[1:]))
-
     def _get_boxes(self, img, anns, category_map, use_segments: bool = False):
         bboxes = []
         segments = []
@@ -307,7 +322,6 @@ class COCOManager(BaseManager):
             if box[2] <= 0 or box[3] <= 0:  # if w <= 0 and h <= 0
                 continue
             # Category mapping
-            # cls = coco80[ann['category_id'] - 1] if cls91to80 else ann['category_id'] - 1  # class
             cls = category_map[ann['category_id']]
             box = [cls] + box.tolist()
             if box not in bboxes:
@@ -324,15 +338,6 @@ class COCOManager(BaseManager):
                 if s not in segments:
                     segments.append(s)
         return bboxes, segments
-
-    def _get_box(self, img, ann) -> np.ndarray:
-        h, w = img['height'], img['width']
-        # The COCO box format is [top left x, top left y, width, height]
-        box = np.array(ann['bbox'], dtype=np.float64)
-        box[:2] += box[2:] / 2  # xy top-left corner to center
-        box[[0, 2]] /= w  # normalize x
-        box[[1, 3]] /= h  # normalize y
-        return box
 
     def _check_images(self, anno: PATH, img_dir: PATH) -> None:
         anno, img_dir = Path(anno), Path(img_dir)
@@ -361,14 +366,14 @@ class COCOManager(BaseManager):
                                 f"and img_dir [{img_dir}] because the previous check not passed.")
 
     def _validate_category(self) -> None:
-        if empty(self.args.train_anno) or not exists(self.args.train_anno):
+        if empty_path(self.args.train_anno) or not exists(self.args.train_anno):
             raise FileNotFoundError(f"Training annotation file [{self.args.train_anno}] not found.")
         with open(self.args.train_anno, "r") as file:
             train_anno = json.load(file)
         train_cat_ids = set(cat['id'] for cat in train_anno['categories'])
 
         def get_valid_ids(anno: PATH):
-            if empty(anno) or not exists(anno):
+            if empty_path(anno) or not exists(anno):
                 return None
             with open(anno, "r") as ann_file:
                 _anno = json.load(ann_file)

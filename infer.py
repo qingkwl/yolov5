@@ -18,44 +18,44 @@ import os
 import time
 from pathlib import Path
 
-import numpy as np
 import yaml
+import numpy as np
 from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
 
 from config.args import get_args_infer
 from deploy.infer_engine.mindx import MindXModel
 from src.dataset import create_dataloader
-from src.general import LOGGER, coco80_to_coco91_class, xyxy2xywh
+from src.general import COCOEval as COCOeval
+from src.general import LOGGER, coco80_to_coco91_class, xyxy2xywh, empty, WRITE_FLAGS, FILE_MODE
 from src.metrics import non_max_suppression, scale_coords
 
 # python infer.py --
 
 
-def Detect(nc=80, anchor=(), stride=()):
-    no = nc + 5
-    nl = len(anchor)
-    na = len(anchor[0]) // 2
-    anchor_grid = np.array(anchor).reshape(nl, 1, -1, 1, 1, 2)
+class Detect:
+    def __init__(self, nc=80, anchor=(), stride=()):
+        self.nc = nc
+        self.no = nc + 5
+        self.nl = len(anchor)
+        self.na = len(anchor[0]) // 2
+        self.anchor_grid = np.array(anchor).reshape((self.nl, 1, -1, 1, 1, 2))
+        self.stride = stride
 
-    def forward(x):
+    def __call__(self, x):
         z = ()
         outs = ()
-        for i in range(len(x)):
-            out = x[i]
+        for i, out in enumerate(x):
             bs, _, ny, nx = out.shape
-            out = out.reshape(bs, na, no, ny, nx).transpose(0, 1, 3, 4, 2)
+            out = out.reshape(bs, self.na, self.no, ny, nx).transpose(0, 1, 3, 4, 2)
             outs += (out,)
 
             xv, yv = np.meshgrid(np.arange(nx), np.arange(ny))
             grid = np.stack((xv, yv), 2).reshape((1, 1, ny, nx, 2))
             y = 1 / (1 + np.exp(-out))
-            y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid) * stride[i]
-            y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * anchor_grid[i]
-            z += (y.reshape(bs, -1, no),)
+            y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid) * self.stride[i]
+            y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]
+            z += (y.reshape(bs, -1, self.no),)
         return np.concatenate(z, 1), outs
-
-    return forward
 
 
 def infer(opt):
@@ -67,6 +67,9 @@ def infer(opt):
 
     with open(opt.data) as f:
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
+    data_dict['train'] = os.path.join(data_dict['root'], data_dict['train'])
+    data_dict['val'] = os.path.join(data_dict['root'], data_dict['val'])
+    data_dict['test'] = os.path.join(data_dict['root'], data_dict['test'])
     rank_size = 1
     rank = 0
     val_dataloader, val_dataset, _ = create_dataloader(data_dict['val'], opt.img_size, opt.batch_size,
@@ -90,9 +93,9 @@ def infer(opt):
     nms_times = 0.
     result_dicts = []
     for i, meta in enumerate(loader):
-        img, targets, paths, shapes = meta["img"], meta["label_out"], meta["img_files"], meta["shapes"]
+        img, paths, shapes = meta["img"], meta["img_files"], meta["shapes"]
         img = img / 255.0
-        nb, _, height, width = img.shape
+        _, _, height, width = img.shape
 
         # Run infer
         _t = time.time()
@@ -110,7 +113,7 @@ def infer(opt):
             shape = shapes[si][0]
             path = Path(str(paths[si]))
             sample_num += 1
-            if len(pred) == 0:
+            if empty(pred):
                 continue
 
             # Predictions
@@ -130,21 +133,21 @@ def infer(opt):
     # Save predictions json
     if not os.path.exists(opt.output_dir):
         os.mkdir(opt.output_dir)
-    with open(os.path.join(opt.output_dir, 'predictions.json'), 'w') as file:
+    with os.fdopen(os.open(os.path.join(opt.output_dir, 'predictions.json'), WRITE_FLAGS, FILE_MODE), 'w') as file:
         json.dump(result_dicts, file)
 
     # Compute mAP
     try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
         anno = COCO(anno_json_path)  # init annotations api
         pred = anno.loadRes(result_dicts)  # init predictions api
-        eval = COCOeval(anno, pred, 'bbox')
+        coco_eval = COCOeval(anno, pred, 'bbox')
         if is_coco_dataset:
-            # eval.params.imgIds = [int(Path(im_file).stem) for im_file in val_dataset.img_files]
-            eval.params.imgIds = [int(Path(im_file).stem) for im_file in val_dataset.im_files]
-        eval.evaluate()
-        eval.accumulate()
-        eval.summarize()
-        map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
+            coco_eval.params.imgIds = [int(Path(im_file).stem) for im_file in val_dataset.img_files]
+        coco_eval.evaluate()
+        coco_eval.accumulate()
+        coco_eval.summarize()
+        mean_ap, map50 = coco_eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
+        LOGGER.info(f"\nCOCO mAP:\n{coco_eval.stats_str}")
     except Exception as e:
         LOGGER.exception('pycocotools unable to run:')
         raise e
@@ -153,7 +156,7 @@ def infer(opt):
         (height, width, opt.batch_size)  # tuple
     LOGGER.info(f'Speed: %.1f/%.1f/%.1f ms inference/NMS/total per %gx%g image at batch-size %g;' % t)
 
-    return map, map50
+    return mean_ap, map50
 
 
 def main():

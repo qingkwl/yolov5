@@ -28,22 +28,21 @@ class ModelBase(metaclass=ABCMeta):
         super().__init__()
         self.model = None
 
-    @abstractmethod
-    def _init_model(self):
-        pass
+    def __del__(self):
+        if hasattr(self, "model") and self.model:
+            del self.model
 
     @abstractmethod
-    def infer(self, input: np.numarray) -> List[np.numarray]:
+    def infer(self, x: np.numarray) -> List[np.numarray]:
         """
         model inference, just for single input
         Args:
-            input: np img
+            x: np img
 
         Returns:
 
         """
-        pass
 
-    def __del__(self):
-        if hasattr(self, "model") and self.model:
-            del self.model
+    @abstractmethod
+    def _init_model(self):
+        pass

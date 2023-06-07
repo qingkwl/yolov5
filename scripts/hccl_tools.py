@@ -14,11 +14,16 @@
 # ============================================================================
 """generate hccl config file script"""
 import os
+import stat
 import sys
 import json
 import socket
 from argparse import ArgumentParser
 from typing import Dict, Any
+
+
+WRITE_FLAGS = os.O_WRONLY | os.O_CREAT    # Default write flags
+FILE_MODE = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP   # Default file authority mode
 
 
 def parse_args():
@@ -134,7 +139,9 @@ def main():
     rank_id = 0
     for instance_id in device_num_list:
         device_id = visible_devices[instance_id]
-        device_ip = device_ips[device_id]
+        device_ip = device_ips.get(device_id, None)
+        if device_ip is None:
+            raise ValueError(f"Device IP {device_ip} not found.")
         device = {'device_id': device_id,
                   'device_ip': device_ip,
                   'rank_id': str(rank_id)}
@@ -153,7 +160,7 @@ def main():
     table_fn = os.path.join(table_path,
                             'hccl_{}p_{}_{}.json'.format(len(device_num_list), "".join(map(str, device_num_list)),
                                                          server_id))
-    with open(table_fn, 'w') as table_fp:
+    with os.fdopen(os.open(table_fn, WRITE_FLAGS, FILE_MODE), 'w') as table_fp:
         json.dump(hccn_table, table_fp, indent=4)
     sys.stdout.flush()
     print("Completed: hccl file was save in :", table_fn)

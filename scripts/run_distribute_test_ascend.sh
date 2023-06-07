@@ -68,7 +68,7 @@ do
     cd "${sub_dir}" || exit
     echo "start testing for rank $RANK_ID, device $DEVICE_ID"
     env > env.log
-    taskset -c $cmdopt python test.py \
+    taskset -c $cmdopt python val.py \
         --weights=$WEIGHTS \
         --cfg=$CONFIG_PATH \
         --data=$DATA_PATH \

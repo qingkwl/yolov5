@@ -14,16 +14,14 @@
 # ============================================================================
 
 import math
-import random
 from copy import deepcopy
 from pathlib import Path
 
-import mindspore as ms
 import numpy as np
+import mindspore as ms
 from mindspore import Tensor, nn, ops
 
 from src.autoanchor import check_anchor_order
-from src.general import check_img_size
 from src.network.common import Detect, parse_model
 
 
@@ -46,35 +44,21 @@ def scale_img(img, ratio=1.0, same_shape=False, gs=32):  # img(16,3,256,416)
     # scales img(bs,3,y,x) by ratio constrained to gs-multiple
     if ratio == 1.0:
         return img
-    else:
-        h, w = img.shape[2:]
-        s = (int(h * ratio), int(w * ratio))  # new size
-        img = ops.ResizeBilinear(size=s, align_corners=False)(img)
-        if not same_shape:  # pad/crop img
-            h, w = _get_h_w_list(ratio, gs, (h, w))
+    h, w = img.shape[2:]
+    s = (int(h * ratio), int(w * ratio))  # new size
+    img = ops.ResizeBilinear(size=s, align_corners=False)(img)
+    if not same_shape:  # pad/crop img
+        h, w = _get_h_w_list(ratio, gs, (h, w))
 
-        # img = F.pad(img, [0, w - s[1], 0, h - s[0]], value=0.447)  # value = imagenet mean
-        img = ops.pad(img, ((0, 0), (0, 0), (0, w - s[1]), (0, h - s[0])))
-        img[:, :, -(w - s[1]):, :] = 0.447
-        img[:, :, :, -(h - s[0]):] = 0.447
-        return img
+    img = ops.pad(img, ((0, 0), (0, 0), (0, w - s[1]), (0, h - s[0])))
+    img[:, :, -(w - s[1]):, :] = 0.447
+    img[:, :, :, -(h - s[0]):] = 0.447
+    return img
 
 
 @ops.constexpr
 def _get_stride_max(stride):
     return int(stride.max())
-
-
-@ops.constexpr
-def _get_new_size(img_shape, gs, imgsz):
-    sz = random.randrange(int(imgsz * 0.5), int(imgsz * 1.5 + gs)) // gs * gs  # size
-    sf = sz / max(img_shape[2:])  # scale factor
-    new_size = img_shape
-    if sf != 1:
-        # new size (stretched to gs-multiple)
-        # Use tuple because nn.interpolate only supports tuple `sizes` parameter must be tuple
-        new_size = tuple(math.ceil(x * sf / gs) * gs for x in img_shape[2:])
-    return new_size
 
 
 class Model(nn.Cell):
@@ -101,7 +85,6 @@ class Model(nn.Cell):
             self.yaml['anchors'] = round(anchors)  # override yaml value
         self.model, self.save, self.layers_param = parse_model(deepcopy(self.yaml), ch=[ch], sync_bn=sync_bn)
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
-        # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
 
         # Recompute
         if opt is not None:
@@ -114,29 +97,17 @@ class Model(nn.Cell):
         # Build strides, anchors
         m = self.model[-1]  # Detect()
         if isinstance(m, Detect):
-            s = 256  # 2x min stride
-            # m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
             m.stride = Tensor(np.array(self.yaml['stride']), ms.int32)
             check_anchor_order(m)
             m.anchors /= m.stride.view(-1, 1, 1)
             self.stride = m.stride
             self.stride_np = np.array(self.yaml['stride'])
             self._initialize_biases()  # only run once
-            # print('Strides: %s' % m.stride.tolist())
-
-        # Multi-scale
-        if opt is not None:
-            self.multi_scale = opt.multi_scale if hasattr(opt, 'multi_scale') else False
-            self.gs = max(int(self.stride.asnumpy().max()), 32)  # grid size (max stride)
-            self.imgsz, _ = [check_img_size(x, self.gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
         # Init weights, biases
         initialize_weights(self.model, hyp)
 
     def construct(self, x, augment=False):
-        if self.multi_scale and self.training:
-            x = ops.interpolate(x, sizes=_get_new_size(x.shape, self.gs, self.imgsz),
-                                coordinate_transformation_mode="asymmetric", mode="bilinear")
         if augment:
             img_size = x.shape[-2:]  # height, width
             s = (1, 0.83, 0.67)  # scales
@@ -144,9 +115,7 @@ class Model(nn.Cell):
             y = ()  # outputs
             for si, fi in zip(s, f):
                 xi = scale_img(ops.ReverseV2([fi])(x) if fi else x, si, gs=_get_stride_max(self.stride_np))
-                # xi = scale_img(x.flip(fi) if fi else x, si, gs=int(self.stride.max()))
                 yi = self.forward_once(xi)[0]  # forward
-                # cv2.imwrite(f'img_{si}.jpg', 255 * xi[0].cpu().numpy().transpose((1, 2, 0))[:, :, ::-1])  # save
                 yi[..., :4] /= si  # de-scale
                 if fi == 2:
                     yi[..., 1] = img_size[0] - yi[..., 1]  # de-flip ud
@@ -154,17 +123,15 @@ class Model(nn.Cell):
                     yi[..., 0] = img_size[1] - yi[..., 0]  # de-flip lr
                 y += (yi,)
             return ops.concat(y, 1)  # augmented inference, train
-        else:
-            return self.forward_once(x)  # single-scale inference, train
+        return self.forward_once(x)  # single-scale inference, train
 
     def forward_once(self, x):
-        y, dt = (), ()  # outputs
+        y, _ = (), ()  # outputs
         for i in range(len(self.model)):
             m = self.model[i]
             iol, f, _, _ = self.layers_param[i]  # iol: index of layers
 
             if not (isinstance(f, int) and f == -1):  # if not from previous layer
-                # x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
                 if isinstance(f, int):
                     x = y[f]
                 else:
@@ -180,7 +147,6 @@ class Model(nn.Cell):
                 if isinstance(m, Detect):
                     break
 
-            # print("index m: ", iol) # print if debug on pynative mode, not available on graph mode.
             x = m(x)  # run
 
             y += (x if iol in self.save else None,)  # save output
@@ -189,7 +155,6 @@ class Model(nn.Cell):
 
     def _initialize_biases(self, cf=None):  # initialize biases into Detect(), cf is class frequency
         # https://arxiv.org/abs/1708.02002 section 3.3
-        # cf = torch.bincount(torch.tensor(np.concatenate(dataset.labels, 0)[:, 0]).long(), minlength=nc) + 1.
         m = self.model[-1]  # Detect() module
         for mi, s in zip(m.m, m.stride):  # from
             s = s.asnumpy()
@@ -199,7 +164,7 @@ class Model(nn.Cell):
             mi.bias = ops.assign(mi.bias, Tensor(b, ms.float32).view(-1))
 
 
-if __name__ == '__main__':
+def main():
     from mindspore import context
 
     context.set_context(mode=context.GRAPH_MODE, pynative_synchronize=True)
@@ -207,7 +172,7 @@ if __name__ == '__main__':
     model = Model(cfg, ch=3, nc=80, anchors=None)
     for p in model.trainable_params():
         print(p.name)
-    # model.set_train(True)
-    # x = Tensor(np.random.randn(1, 3, 160, 160), ms.float32)
-    # pred = model(x)
-    # print(pred)
+
+
+if __name__ == '__main__':
+    main()

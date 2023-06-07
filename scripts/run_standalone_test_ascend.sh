@@ -47,7 +47,7 @@ echo "Make directory ${eval_exp}"
 copy_files_to "$eval_exp"
 cd "${eval_exp}" || exit
 env > env.log
-python test.py \
+python val.py \
   --weights=$WEIGHTS \
   --cfg=$CONFIG_PATH \
   --data=$DATA_PATH \

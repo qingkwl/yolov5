@@ -59,7 +59,7 @@ class _BoostTrainPipelineAccuStepCell(_TrainPipelineAccuStepCell):
     def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0, enable_clip_grad=True):
         super(_BoostTrainPipelineAccuStepCell, self).__init__(network, optimizer, sens=sens)
         self.ema = ema
-        self.use_loss_scaler = False if amp_loss_scaler is None else True
+        self.use_loss_scaler = amp_loss_scaler is not None
         self.enable_clip_grad = enable_clip_grad
         self.amp_loss_scaler = amp_loss_scaler
         print(f"[INFO] Enable loss scale: {self.use_loss_scaler}", flush=True)
@@ -90,7 +90,7 @@ class _TrainOneStepCell(TrainOneStepCell):
     def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0, enable_clip_grad=True):
         super(_TrainOneStepCell, self).__init__(network, optimizer, sens=sens)
         self.ema = ema
-        self.use_loss_scaler = False if amp_loss_scaler is None else True
+        self.use_loss_scaler = amp_loss_scaler is not None
         self.amp_loss_scaler = amp_loss_scaler
         self.enable_clip_grad = enable_clip_grad
         self.hyper_map = ops.HyperMap()
@@ -115,7 +115,7 @@ class _BoostTrainOneStepCell(BoostTrainOneStepCell):
     def __init__(self, network, ema, optimizer, amp_loss_scaler, sens=1.0, enable_clip_grad=True):
         super(_BoostTrainOneStepCell, self).__init__(network, optimizer, sens)
         self.ema = ema
-        self.use_loss_scaler = False if amp_loss_scaler is None else True
+        self.use_loss_scaler = amp_loss_scaler is not None
         self.amp_loss_scaler = amp_loss_scaler
         self.enable_clip_grad = enable_clip_grad
         print(f"[INFO] Enable loss scale: {self.use_loss_scaler}", flush=True)

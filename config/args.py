@@ -15,8 +15,8 @@
 
 from __future__ import annotations
 
-import argparse
 import ast
+import argparse
 from argparse import ArgumentParser
 
 
@@ -28,13 +28,11 @@ class Argument:
 
 class Parser(ArgumentParser):
     def __init__(self, *args, **kwargs):
-        # ArgumentParser.__init__(self, *args, **kwargs)
         self.arguments = []
         super(Parser, self).__init__(*args, **kwargs)
 
     def add_argument(self, *args, **kwargs):
         self.arguments.append(Argument(*args, **kwargs))
-        # ArgumentParser.add_argument(self, *args, **kwargs)
         super(Parser, self).add_argument(*args, **kwargs)
 
     def copy_arg(self, arg: Argument):
@@ -71,7 +69,7 @@ def get_args_infer_basic():
 
 
 def get_args_train():
-    test_parser = get_args_test()
+    test_parser = get_args_eval()
     parser = Parser(prog="train.py", add_help=False, conflict_handler="resolve")
     parser.copy_args(test_parser)
     parser.add_argument('--ms_strategy', type=str, default='StaticShape',
@@ -107,7 +105,8 @@ def get_args_train():
     parser.add_argument('--noautoanchor', type=ast.literal_eval, default=False, help='disable autoanchor check')
     parser.add_argument('--evolve', type=ast.literal_eval, default=False, help='evolve hyperparameters')
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
-    parser.add_argument('--cache_images', type=ast.literal_eval, default=False, help='cache images for faster training')
+    parser.add_argument('--cache_images', type=str, default='',
+                        help='cache images for faster training', choices=['ram', 'disk', ''])
     parser.add_argument('--image_weights', type=ast.literal_eval, default=False,
                         help='use weighted image selection for training')
     parser.add_argument('--multi_scale', type=ast.literal_eval, default=False, help='vary img-size +/- 50%%')
@@ -149,8 +148,8 @@ def get_args_train():
     return parser
 
 
-def get_args_test():
-    parser = Parser(prog='test.py', conflict_handler="resolve")
+def get_args_eval():
+    parser = Parser(prog='val.py', conflict_handler="resolve")
     basic_parser = get_args_basic()
     parser.copy_args(basic_parser)
     basic_infer_parser = get_args_infer_basic()
@@ -181,7 +180,7 @@ def get_args_test():
 
 
 def get_args_infer():
-    parser = Parser(prog='infer.py')
+    parser = Parser(prog='infer.py', conflict_handler="resolve")
     basic_parser = get_args_basic()
     infer_basic_parser = get_args_infer_basic()
     parser.copy_args(basic_parser)

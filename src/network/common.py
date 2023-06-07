@@ -15,14 +15,16 @@
 
 import copy
 import math
+import sys
+from collections import namedtuple
 
+import numpy as np
 import mindspore as ms
 import mindspore.numpy as mnp
-import numpy as np
 from mindspore import Tensor, nn, ops
 from mindspore.common.initializer import HeUniform
 
-from src.general import make_divisible
+from src.general import make_divisible, empty
 
 _SYNC_BN = False
 
@@ -116,7 +118,6 @@ class Conv(nn.Cell):
             self.bn = nn.SyncBatchNorm(c2, momentum=0.1, eps=1e-5)
         else:
             self.bn = nn.BatchNorm2d(c2, momentum=0.1, eps=1e-5)
-        # self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Cell) else nn.Identity())
         self.act = nn.SiLU() if act is True else act if isinstance(act, nn.Cell) else nn.Identity()
 
     def construct(self, x):
@@ -205,13 +206,6 @@ def get_convert_matrix():
 
 
 class Detect(nn.Cell):
-
-    # stride = None  # strides computed during build
-    # export = False  # onnx export
-    # end2end = False
-    # include_nms = False
-    # concat = False
-
     def __init__(self, nc=80, anchors=(), ch=()):  # detection layer
         super(Detect, self).__init__()
         self.stride = None
@@ -225,10 +219,6 @@ class Detect(nn.Cell):
         self.no = nc + 5  # number of outputs per anchor
         self.nl = len(anchors)  # number of detection layers
         self.na = len(anchors[0]) // 2  # number of anchors
-        # self.grid_cell = nn.CellList([BaseCell(ms.Parameter(Tensor(np.zeros(1), ms.float32),
-        #                                                     requires_grad=False))
-        #                               for _ in range(self.nl)])
-        # self.grid = [Tensor(np.zeros(1), ms.float32)] * self.nl  # init grid
         self.anchors = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, -1, 2),
                                     requires_grad=False)  # shape(nl,na,2)
         self.anchor_grid = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, 1, -1, 1, 1, 2),
@@ -239,6 +229,17 @@ class Detect(nn.Cell):
                                         has_bias=True,
                                         weight_init=HeUniform(negative_slope=math.sqrt(5)),
                                         bias_init=_init_bias((self.no * self.na, x, 1, 1))) for x in ch])  # output conv
+
+    @staticmethod
+    def convert(z):
+        z = ops.concat(z, 1)
+        box = z[:, :, :4]
+        conf = z[:, :, 4:5]
+        score = z[:, :, 5:]
+        score *= conf
+        convert_matrix = get_convert_matrix()
+        box = ops.matmul(box, convert_matrix)
+        return (box, score)
 
     def construct(self, x):
         z = ()  # inference output
@@ -254,36 +255,19 @@ class Detect(nn.Cell):
             outs += (out,)
 
             if not self.training:  # inference
-                # grid_i_shape = self.grid_cell[i].param.shape
-                # out_shape = out.shape
-                # if grid_i_shape[2:4] != out_shape[2:4]:
-                #     self.grid_cell[i].param = self._make_grid(nx, ny, self.grid_cell[i].param.dtype)
-
                 grid_tensor = self._make_grid(nx, ny, out.dtype)
 
                 y = ops.Sigmoid()(out)
-                # y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid_cell[i].param) * self.stride[i]  # xy
                 y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid_tensor) * self.stride[i]  # xy
                 y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
                 z += (y.view(bs, -1, self.no),)
 
-        # return outs
         return outs if self.training or self.is_export else (ops.concat(z, 1), outs)
 
     @staticmethod
     def _make_grid(nx=20, ny=20, dtype=ms.float32):
         xv, yv = ops.meshgrid((mnp.arange(nx), mnp.arange(ny)))
         return ops.cast(ops.stack((xv, yv), 2).view((1, 1, ny, nx, 2)), dtype)
-
-    def convert(self, z):
-        z = ops.concat(z, 1)
-        box = z[:, :, :4]
-        conf = z[:, :, 4:5]
-        score = z[:, :, 5:]
-        score *= conf
-        convert_matrix = get_convert_matrix()
-        box = ops.matmul(box, convert_matrix)
-        return (box, score)
 
 
 class Proto(nn.Cell):
@@ -302,7 +286,7 @@ class Proto(nn.Cell):
 class Segment(Detect):
     # YOLOv5 Segment head for segmentation models
     def __init__(self, nc=80, anchors=(), nm=32, npr=256, ch=(), inplace=True):
-        super().__init__(nc, anchors, ch, inplace)
+        super().__init__(nc, anchors, ch)
         self.nm = nm  # number of masks
         self.npr = npr  # number of protos
         self.no = 5 + nc + self.nm  # number of outputs per anchor
@@ -311,7 +295,6 @@ class Segment(Detect):
                                         has_bias=True,
                                         weight_init=HeUniform(negative_slope=math.sqrt(5)),
                                         bias_init=_init_bias((self.no * self.na, x, 1, 1))) for x in ch])  # output conv
-        # self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
         self.proto = Proto(ch[0], self.npr, self.nm)  # protos
         self.detect = Detect.construct
 
@@ -325,60 +308,89 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
     global _SYNC_BN
     _SYNC_BN = sync_bn
     print('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
-    anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
-    na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
-    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
-
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     layers_param = []
-    for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
-        m = eval(m) if isinstance(m, str) else m  # eval strings
-        for j, a in enumerate(args):
-            try:
-                args[j] = eval(a) if isinstance(a, str) else a  # eval strings
-            except:
-                pass
-
-        n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [nn.Conv2d, Conv, C3, SPPF, Bottleneck]:
-            c1, c2 = ch[f], args[0]
-            if c2 != no:  # if not output
-                c2 = make_divisible(c2 * gw, 8)
-
-            args = [c1, c2, *args[1:]]
-            if m in [C3]:
-                args.insert(2, n)  # number of repeats
-                n = 1
-        elif m is nn.BatchNorm2d:
-            args = [ch[f]]
-        elif m is Concat:
-            c2 = sum([ch[x] for x in f])
-        elif m in {Detect, Segment}:
-            args.append([ch[x] for x in f])
-            if isinstance(args[1], int):  # number of anchors
-                args[1] = [list(range(args[1] * 2))] * len(f)
-            if m is Segment:
-                args[3] = make_divisible(args[3] * gw, 8)
-        elif m is Contract:
-            c2 = ch[f] * args[0] ** 2
-        elif m is Expand:
-            c2 = ch[f] // args[0] ** 2
-        else:
-            c2 = ch[f]
-
+    for i, layer_cfg in enumerate(d['backbone'] + d['head']):
+        c2, f, n, m, args = _parse_layer(ch, d, layer_cfg)    # ch out, from, number, module, args
         m_ = nn.SequentialCell([m(*args) for _ in range(n)]) if n > 1 else m(*args)
-
         t = str(m)  # module type
-        np = sum([x.size for x in m_.get_parameters()])  # number params
-        m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
-        layers_param.append((i, f, t, np))
-        print('%3s%18s%3s%10.0f  %-40s%-30s' % (i, f, n, np, t, args))  # print
+        num_params = sum([x.size for x in m_.get_parameters()])  # number params
+        m_.i, m_.f, m_.type, m_.np = i, f, t, num_params  # attach index, 'from' index, type, number params
+        layers_param.append((i, f, t, num_params))
+        print('%3s%18s%3s%10.0f  %-40s%-30s' % (i, f, n, num_params, t, args))  # print
         save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
         layers.append(m_)
         if i == 0:
             ch = []
         ch.append(c2)
     return nn.CellList(layers), sorted(save), layers_param
+
+
+def _parse_layer(ch, d, layer_cfg):
+    c2 = ch[-1]     # ch out
+    f, n, m, args = layer_cfg
+    anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
+    na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
+    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
+    m = _get_layer_module(m) if isinstance(m, str) else m
+    for j, a in enumerate(args):
+        if isinstance(a, str):
+            args[j] = int(a) if a.isnumeric() else d[a]
+    n = max(round(n * gd), 1) if n > 1 else n  # depth gain
+    if m in [nn.Conv2d, Conv, C3, SPPF, Bottleneck]:
+        c1, c2 = ch[f], args[0]
+        if c2 != no:  # if not output
+            c2 = make_divisible(c2 * gw, 8)
+
+        args = [c1, c2, *args[1:]]
+        if m in [C3]:
+            args.insert(2, n)  # number of repeats
+            n = 1
+    elif m is nn.BatchNorm2d:
+        args = [ch[f]]
+    elif m is Concat:
+        c2 = sum([ch[x] for x in f])
+    elif m in {Detect, Segment}:
+        args.append([ch[x] for x in f])
+        if isinstance(args[1], int):  # number of anchors
+            args[1] = [list(range(args[1] * 2))] * len(f)
+        if m is Segment:
+            args[3] = make_divisible(args[3] * gw, 8)
+    elif m is Contract:
+        c2 = ch[f] * args[0] ** 2
+    elif m is Expand:
+        c2 = ch[f] // args[0] ** 2
+    else:
+        c2 = ch[f]
+    layer_tuple = namedtuple('LayerTuple', ['channel_out', 'from', 'number', 'module', 'args'], rename=True)
+    return layer_tuple(c2, f, n, m, args)
+
+
+def _get_layer_module(m: str):
+    """
+    Args:
+        m: str, class name defined in this file, or absolute path of class in other package
+
+        Note:
+            if m is the absolute path, the parent module must be imported in this file.
+            e.g. nn.Conv2d, ms.nn.Conv2d
+            nn or ms.nn must be imported firstly
+    """
+    if not isinstance(m, str):
+        raise TypeError("Only support input of str.")
+    path = m.split('.')
+    parent = ".".join(path[:-1])
+    cls = path[-1]
+    if empty(parent):
+        module = getattr(sys.modules[__name__], m, None)  # Get module from this file
+    else:
+        parent_module = getattr(sys.modules[__name__], parent, None)  # Get module from this file
+        if parent_module is None:
+            raise ImportError(f"No module named {parent}")
+        module = getattr(parent_module, cls, None)
+    if module is None:
+        raise ImportError(f"No module named {cls} in {parent}")
+    return module
 
 
 class EMA(nn.Cell):

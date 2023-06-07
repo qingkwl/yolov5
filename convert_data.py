@@ -36,7 +36,11 @@ def get_args():
     return args
 
 
-if __name__ == "__main__":
+def main():
     args = get_args()
     convert(args.src_format, args.dst_format, args.src_root, args.dst_root, args.src_cfg, args.dst_cfg,
             split=args.split)
+
+
+if __name__ == "__main__":
+    main()

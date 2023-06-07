@@ -15,12 +15,13 @@
 
 import os
 import time
+from collections import namedtuple
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from src.general import LOGGER, box_iou, xywh2xyxy
+from src.general import LOGGER, box_iou, xywh2xyxy, empty
 
 
 class ConfusionMatrix:
@@ -30,6 +31,19 @@ class ConfusionMatrix:
         self.nc = nc  # number of classes
         self.conf = conf
         self.iou_thres = iou_thres
+
+    @staticmethod
+    def get_matches(iou, x):
+        if x[0].shape[0]:
+            matches = np.concatenate((np.stack(x, 1), iou[x[0], x[1]][:, None]), 1)
+            if x[0].shape[0] > 1:
+                matches = matches[matches[:, 2].argsort()[::-1]]
+                matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
+                matches = matches[matches[:, 2].argsort()[::-1]]
+                matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
+        else:
+            matches = np.zeros((0, 3))
+        return matches
 
     def process_batch(self, detections, labels):
         """
@@ -69,19 +83,6 @@ class ConfusionMatrix:
                 if not any(m1 == i):
                     self.matrix[dc, self.nc] += 1  # predicted background
 
-    @staticmethod
-    def get_matches(iou, x):
-        if x[0].shape[0]:
-            matches = np.concatenate((np.stack(x, 1), iou[x[0], x[1]][:, None]), 1)
-            if x[0].shape[0] > 1:
-                matches = matches[matches[:, 2].argsort()[::-1]]
-                matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
-                matches = matches[matches[:, 2].argsort()[::-1]]
-                matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
-        else:
-            matches = np.zeros((0, 3))
-        return matches
-
     def get_matrix(self):
         return self.matrix
 
@@ -119,7 +120,6 @@ def _nms(xyxys, scores, threshold, time_limit=-1, sample_idx=0):
     scores = scores
     # zhy_test
     areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-    # areas = (x2 - x1) * (y2 - y1)
     order = scores.argsort()[::-1]
     reserved_boxes = []
     while order.size > 0:
@@ -133,8 +133,6 @@ def _nms(xyxys, scores, threshold, time_limit=-1, sample_idx=0):
         # zhy_test
         intersect_w = np.maximum(0.0, min_x2 - max_x1 + 1)
         intersect_h = np.maximum(0.0, min_y2 - max_y1 + 1)
-        # intersect_w = np.maximum(0.0, min_x2 - max_x1)
-        # intersect_h = np.maximum(0.0, min_y2 - max_y1)
         intersect_area = intersect_w * intersect_h
 
         ovr = intersect_area / (areas[i] + areas[order[1:]] - intersect_area + 1e-6)
@@ -167,7 +165,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
     xc = prediction[..., 4] > conf_thres  # candidates
 
     # Settings
-    min_wh, max_wh = 2, 7680  # (pixels) minimum and maximum box width and height
+    _, max_wh = 2, 7680  # (pixels) minimum and maximum box width and height
     max_det = 300  # maximum number of detections per image
     max_nms = 30000  # maximum number of boxes into torchvision.ops.nms()
     time_limit = time_limit  # seconds to quit after
@@ -179,11 +177,10 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
     output = [np.zeros((0, 6))] * prediction.shape[0]
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
-        # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
         x = x[xc[xi]]  # confidence
 
         # Cat apriori labels if autolabelling
-        if labels and len(labels[xi]):
+        if not empty(labels) and not empty(labels[xi]):
             l = labels[xi]
             v = np.zeros((len(l), nc + 5))
             v[:, :4] = l[:, 1:5]  # box
@@ -235,7 +232,6 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
             # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
             iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix # (N, M)
             weights = iou * scores[None]  # box weights
-            # (N, M) @ (M, 4) / (N, 1)
             x[i, :4] = np.matmul(weights, x[:, :4]) / weights.sum(1, keepdim=True)  # merged boxes
             if redundant:
                 i = i[iou.sum(1) > 1]  # require redundancy
@@ -255,7 +251,6 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None) -> np.ndarray:
         gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
         pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
     else:
-        # assert ratio_pad[0, 0] == ratio_pad[0, 1]
         gain = ratio_pad[0, 0]
         pad = ratio_pad[1, :]
 
@@ -342,14 +337,13 @@ def ap_per_class(tp, conf, pred_cls, target_cls, v5_metric=False, plot=False, sa
         plot_mc_curve(px, p, os.path.join(save_dir, 'P_curve.png'), names, ylabel='Precision')
         plot_mc_curve(px, r, os.path.join(save_dir, 'R_curve.png'), names, ylabel='Recall')
 
-    # i = f1.mean(0).argmax()  # max F1 index
-    # return p[:, i], r[:, i], ap, f1[:, i], unique_classes.astype('int32')
     i = smooth(f1.mean(0), 0.1).argmax()  # max F1 index
     p, r, f1 = p[:, i], r[:, i], f1[:, i]
-    eps=1e-16
+    eps = 1e-16
     tp = (r * nt).round()  # true positives
     fp = (tp / (p + eps) - tp).round()  # false positives
-    return tp, fp, p, r, f1, ap, unique_classes.astype(int)
+    result_tuple = namedtuple('ClassAP', ['tp', 'fp', 'precision', 'recall', 'f1', 'ap', 'unique_class'])
+    return result_tuple(tp, fp, p, r, f1, ap, unique_classes.astype(int))
 
 
 def compute_ap(recall, precision, v5_metric=False):
@@ -391,7 +385,7 @@ def plot_pr_curve(px, py, ap, save_dir='pr_curve.png', names=()):
     fig, ax = plt.subplots(1, 1, figsize=(9, 6), tight_layout=True)
     py = np.stack(py, axis=1)
 
-    if 0 < len(names) < 21:  # display per-class legend if < 21 classes
+    if not empty(names) and len(names) < 21:    # display per-class legend if < 21 classes
         for i, y in enumerate(py.T):
             ax.plot(px, y, linewidth=1, label=f'{names[i]} {ap[i, 0]:.3f}')  # plot(recall, precision)
     else:
@@ -410,7 +404,7 @@ def plot_mc_curve(px, py, save_dir='mc_curve.png', names=(), xlabel='Confidence'
     # Metric-confidence curve
     fig, ax = plt.subplots(1, 1, figsize=(9, 6), tight_layout=True)
 
-    if 0 < len(names) < 21:  # display per-class legend if < 21 classes
+    if not empty(names) and len(names) < 21:    # display per-class legend if < 21 classes
         for i, y in enumerate(py):
             ax.plot(px, y, linewidth=1, label=f'{names[i]}')  # plot(confidence, metric)
     else:

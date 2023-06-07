@@ -14,14 +14,15 @@
 # =======================================================================================
 
 import math
+from collections import namedtuple
 
+import numpy as np
 import mindspore as ms
 import mindspore.common.dtype as mstype
-import numpy as np
 from mindspore import nn
 from mindspore._checkparam import Validator
 from mindspore.common.api import ms_function
-from mindspore.common.parameter import Parameter, ParameterTuple
+from mindspore.common.parameter import Parameter
 from mindspore.common.tensor import Tensor
 from mindspore.nn.optim.optimizer import opt_init_args_register
 from mindspore.ops import composite as C
@@ -36,12 +37,12 @@ def one_cycle(y1=0.0, y2=1.0, steps=100):
 
 def get_group_param(model):
     pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
-    for k, v in model.cells_and_names():
+    for _, v in model.cells_and_names():
         if hasattr(v, 'beta') and isinstance(v.beta, ms.Parameter):
             pg2.append(v.beta)  # biases
         elif hasattr(v, 'bias') and isinstance(v.bias, ms.Parameter):
             pg2.append(v.bias)
-        if isinstance(v, nn.BatchNorm2d) or isinstance(v, nn.SyncBatchNorm):
+        if isinstance(v, (nn.BatchNorm2d, nn.SyncBatchNorm)):
             pg1.append(v.gamma)  # no decay
         elif hasattr(v, 'weight') and isinstance(v.weight, ms.Parameter):
             pg0.append(v.weight)  # apply decay
@@ -83,14 +84,15 @@ def get_lr(opt, hyp, per_epoch_size, resume_epoch):
             lr_pg1.append(np.interp(i, xi, [0.0, _lr]))
             lr_pg2.append(np.interp(i, xi, [warmup_bias_lr, _lr]))
             if with_momentum:
-                momentum_pg.append(np.interp(i, xi,[hyp['warmup_momentum'], hyp['momentum']]))
+                momentum_pg.append(np.interp(i, xi, [hyp['warmup_momentum'], hyp['momentum']]))
         else:
             lr_pg0.append(_lr)
             lr_pg1.append(_lr)
             lr_pg2.append(_lr)
             if with_momentum:
                 momentum_pg.append(momentum_after_warmup)
-    return lr_pg0, lr_pg1, lr_pg2, momentum_pg, warmup_steps
+    lr_group = namedtuple('LearningRate', ['lr_pg0', 'lr_pg1', 'lr_pg2', 'momentum_pg', 'warmup_steps'])
+    return lr_group(lr_pg0, lr_pg1, lr_pg2, momentum_pg, warmup_steps)
 
 
 # Thor
@@ -166,7 +168,6 @@ class YoloMomentum(nn.Optimizer):
     @opt_init_args_register
     def __init__(self, params, learning_rate, momentum, weight_decay=0.0, loss_scale=1.0, use_nesterov=False):
         super(YoloMomentum, self).__init__(learning_rate, params, weight_decay, loss_scale)
-        # Validator.check_value_type("momentum", momentum, [float], self.cls_name)
         if isinstance(momentum, float) and momentum < 0.0:
             raise ValueError("For 'Momentum', the argument 'momentum' must be at least 0.0, "
                              "but got {}".format(momentum))

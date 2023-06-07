@@ -15,9 +15,9 @@
 
 from __future__ import annotations
 
-import yaml
 from pathlib import Path
 from typing import Type
+import yaml
 
 from src.data.base import BaseArgs, COCOArgs, YOLOArgs, LabelmeArgs, exists
 from src.data.coco import COCOManager
@@ -46,22 +46,17 @@ def merge_args(config):
     else:
         raise ValueError(f"Unsupported model type: {model_name}")
     if target_format == 'yolo':
-        # arg_class: Type[YOLOArgs] = _dataset_arg_mapping["yolo"]
-        # TODO: Add dataset yaml path to config
         arg_path = DATA_CONFIG_ROOT / "yolo.yaml"
         with open(arg_path, "r") as file:
             args_dict = yaml.load(file, Loader=yaml.SafeLoader)
-        # args: YOLOArgs = arg_class.load_args(arg_path)
         if not root:
             args_dict["root"] = root
         args = YOLOArgs(**args_dict)
         config.train = str(args.train_anno)
         config.val = str(args.val_anno)
-        config.test = str(args.test_anno)
+        config.eval = str(args.test_anno)
         config.nc = int(args.nc)
-        from pathlib import Path
-        if isinstance(args.names, str) or isinstance(args.names, Path):
-            from src.data.yolo import YOLOManager
+        if isinstance(args.names, (str, Path)):
             config.names = YOLOManager.read_txt(args.names)
     else:
         raise NotImplementedError(f"Unsupported dataset {dataset_name}.")

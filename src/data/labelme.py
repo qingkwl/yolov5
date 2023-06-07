@@ -39,6 +39,7 @@ Labelme
 
 from __future__ import annotations
 
+import os
 import json
 import shutil
 from pathlib import Path
@@ -48,19 +49,19 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 import numpy as np
 
-from src.data.base import PATH, BaseArgs, BaseManager, empty, valid_path, COCOArgs, LabelmeArgs
+from src.data.base import PATH, BaseArgs, BaseManager, empty_path, valid_path, COCOArgs, LabelmeArgs
+from src.general import FILE_MODE, WRITE_FLAGS
 
 
 class Encoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
             return int(obj)
-        elif isinstance(obj, np.floating):
+        if isinstance(obj, np.floating):
             return float(obj)
-        elif isinstance(obj, np.ndarray):
+        if isinstance(obj, np.ndarray):
             return obj.tolist()
-        else:
-            return super(Encoder, self).default(obj)
+        return super(Encoder, self).default(obj)
 
 
 class LabelmeManager(BaseManager):
@@ -81,16 +82,16 @@ class LabelmeManager(BaseManager):
         self.ann_id = 1
         self.img_id = 1
 
+    @staticmethod
+    def is_img_suffix(suffix: str) -> bool:
+        return suffix.lower() in ('.jpg', '.png', '.bmp')
+
     def reset(self) -> None:
         self.images.clear()
         self.categories.clear()
         self.annotations.clear()
         self.ann_id = 1
         self.img_id = 1
-
-    def _check_dirs(self) -> None:
-        if empty(self.args.root):
-            raise ValueError(f"The root directory is empty, which must be set.")
 
     def convert(self, target_format: str, data_config: BaseArgs, copy_images: bool = True):
         target_format = target_format.lower()
@@ -100,10 +101,14 @@ class LabelmeManager(BaseManager):
         else:
             raise ValueError(f"The target format [{target_format}] is not supported.")
 
+    def _check_dirs(self) -> None:
+        if empty_path(self.args.root):
+            raise ValueError(f"The root directory is empty, which must be set.")
+
     def _convert_to_coco(self, data_dir: Path, target_dir: Path, copy_images: bool = True) -> dict[str, Any]:
         json_file_list = list(data_dir.rglob("*.json"))
         with logging_redirect_tqdm(loggers=[self.logger]):
-            for idx, json_file in enumerate(tqdm(json_file_list)):
+            for _, json_file in enumerate(tqdm(json_file_list)):
                 img_id = self.img_id
                 try:
                     img_info, img_data = self._get_img_info(img_id, json_file)
@@ -174,10 +179,6 @@ class LabelmeManager(BaseManager):
         }
         return img_info, img_data
 
-    def is_img_suffix(self, suffix: str) -> bool:
-        suffix = suffix.lower()
-        return (suffix == ".jpg") or (suffix == ".png") or (suffix == ".bmp")
-
     def _to_coco(self, data_config: BaseArgs, copy_images: bool = False) -> None:
         def _convert_data(data_dir: PATH, target_dir: PATH, target_json: PATH):
             self.images.clear()
@@ -187,7 +188,7 @@ class LabelmeManager(BaseManager):
             target_dir = Path(target_dir)
             target_json = Path(target_json)
             coco = self._convert_to_coco(data_dir, target_dir, copy_images)
-            with open(target_json, 'w') as file:
+            with os.fdopen(os.open(target_json, WRITE_FLAGS, FILE_MODE), 'w') as file:
                 json.dump(coco, file, indent=4, cls=Encoder)
 
         self.reset()
@@ -224,8 +225,6 @@ class LabelmeManager(BaseManager):
             self.logger.warning(f"Skip checking images for img_dir [{img_dir}] because the previous check not passed.")
 
     def _validate_category(self) -> None:
-        # if empty(self.args.train_dir) or not exists(self.args.train_dir):
-        #     raise FileNotFoundError(f"Training images directory {self.args.train_dir} not found.")
         # TODO: Check category ids consistency
         pass
 

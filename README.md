@@ -3,64 +3,63 @@
 <details>
 <summary>Click to unfold/fold</summary>
 
-- [Contents](#contents)
-- [YOLOv5 Description](#[YOLOv5-description](#contents))
-- [Model Architecture](#[model-architecture](#contents))
-- [Dataset](#[dataset](#contents))
-  - [Dataset Download](#Dataset-Download)
-  - [Dataset Structure](#Dataset-Structure)
-  - [Dataset Conversion](#Dataset-Conversion)
-- [Quick Start](#[quick-start](#contents))
-- [Script Description](#[script-description](#contents))
-    - [Script and Sample Code](#[Script-and-Sample-Code](#contents))
-    - [Script Parameters](#[script-parameters](#contents))
-    - [Training Process](#[training-process](#contents))
-        - [Training](#training)
-        - [Distributed Training](#distributed-training)
-    - [Evaluation Process](#[evaluation-process](#contents))
-        - [Evaluation](#evaluation)
-    - [Infer Process](#[Infer-process](#contents))
-        - [Infer](#[Infer](#contents)) 
-- [Model Description](#[model-description](#contents))
-- [Performance](#[performance](#contents))
+- [Contents](#Contents)
+- [YOLOv5 Description](#[YOLOv5 Description](#Contents))
+- [Model Architecture](#[Model Architecture](#Contents))
+- [Dataset](#[dataset](#Contents))
+  - [Dataset Download](#[Dataset Download](#Contents))
+  - [Dataset Structure](#[Dataset Structure](#Contents))
+  - [Dataset Conversion](#[Dataset Conversion](#Contents))
+- [Quick Start](#[quick-start](#Contents))
+- [Script Description](#[script-description](#Contents))
+  - [Script and Sample Code](#[Script and Sample Code](#Contents))
+  - [Script Parameters](#[Script Parameters](#Contents))
+  - [Training Process](#[Training Process](#Contents))
+    - [Training](#[Training](#Contents))
+    - [Distributed Training](#[Distributed Training](#Contents))
+  - [Evaluation Process](#[Evaluation Process](#Contents))
+    - [Evaluation](#[Evaluation](#Contents))
+  - [Infer Process](#[Infer Process](#Contents))
+    - [Environment](#[Environment](#Contents))
+    - [Infer](#[Infer](#Contents))
+- [Model Description](#[Model Description](#Contents))
+  - [Performance](#[Performance](#Contents))
 
 </details>
 
+# [YOLOv5 Description](#Contents)
 
-
-# [YOLOv5 Description](#contents)
-
-Published in April 2020 by [Ultralytics](https://ultralytics.com/), YOLOv5 achieved state-of-the-art performance on the COCO dataset for object detection. 
-It is an important improvement of YoloV3, the implementation of a new architecture in the **Backbone** and 
-the modifications in the **Neck** have improved the **mAP**(mean Average Precision) by **10%** and 
+Published in April 2020 by [Ultralytics](https://ultralytics.com/), YOLOv5 achieved state-of-the-art performance on the COCO dataset for object detection.
+It is an important improvement of YoloV3, the implementation of a new architecture in the **Backbone** and
+the modifications in the **Neck** have improved the **mAP**(mean Average Precision) by **10%** and
 the number of **FPS**(Frame per Second) by **12%**.
 
 Repository of official implementation by `PyTorch`：https://github.com/ultralytics/yolov5
 
+# [Model Architecture](#Contents)
 
-# [Model Architecture](#contents)
-
-The YOLOv5 network is mainly composed of CSP and Focus as a backbone, spatial pyramid pooling(SPP) additional module, 
-PANet path-aggregation neck and YOLOv3 head. [CSP](https://arxiv.org/abs/1911.11929) is a novel backbone 
-that can enhance the learning capability of CNN. 
-The [spatial pyramid pooling](https://arxiv.org/abs/1406.4729) block is added over CSP to increase the receptive field 
-and separate out the most significant context features. 
-Instead of Feature pyramid networks (FPN) for object detection used in YOLOv3, the PANet is used as the method 
-for parameter aggregation for different detector levels. 
-To be more specific, CSPDarknet53 contains 5 CSP modules which use the convolution **C** with kernel size k=3x3, 
+The YOLOv5 network is mainly composed of CSP and Focus as a backbone, spatial pyramid pooling(SPP) additional module,
+PANet path-aggregation neck and YOLOv3 head. [CSP](https://arxiv.org/abs/1911.11929) is a novel backbone
+that can enhance the learning capability of CNN.
+The [spatial pyramid pooling](https://arxiv.org/abs/1406.4729) block is added over CSP to increase the receptive field
+and separate out the most significant context features.
+Instead of Feature pyramid networks (FPN) for object detection used in YOLOv3, the PANet is used as the method
+for parameter aggregation for different detector levels.
+To be more specific, CSPDarknet53 contains 5 CSP modules which use the convolution **C** with kernel size k=3x3,
 stride s = 2x2; Within the PANet and SPP, 1x1, 5x5, 9x9, 13x13 max poolings are applied.
 
-
-# [Dataset](#contents)
+# [Dataset](#Contents)
 
 `YOLOv5` is trained on `COCO` dataset with labels of `YOLO` format.
 
-## Dataset Download
-Dataset: 
+## [Dataset Download](#Contents)
+
+Dataset:
+
 - Raw data
-  - Train set: http://images.cocodataset.org/zips/train2017.zip
-  - Validation set: http://images.cocodataset.org/zips/val2017.zip
-  - Test set: http://images.cocodataset.org/zips/test2017.zip
+    - Train set: http://images.cocodataset.org/zips/train2017.zip
+    - Validation set: http://images.cocodataset.org/zips/val2017.zip
+    - Test set: http://images.cocodataset.org/zips/test2017.zip
 - YOLO format labels `coco2017labels`: https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels.zip
 - YOLO format segmentation labels `coco2017labels-segments`: https://github.com/ultralytics/yolov5/releases/download/v1.0/coco2017labels-segments.zip
 
@@ -74,8 +73,7 @@ Download the raw images data, and the labels files according to target model:
 | YOLOv5l | coco2017labels-segments |
 | YOLOv5x | coco2017labels-segments |
 
-
-## Dataset Structure
+## [Dataset Structure](#Contents)
 
 After downloading the dataset and labels, you should put them in correct position
 as the following text shows. The `images` folder saves the images and `labels`
@@ -100,17 +98,17 @@ YOLO
 └── test2017.txt
 ```
 
-
-## Dataset Conversion
+## [Dataset Conversion](#Contents)
 
 If you want to use customized data with `COCO` or `labelme` format, you can use conversion script to convert them to `YOLO` format.
 
 Conversion steps:
+
 1. Change directory to `config/data_conversion`. The names of the files in this folder stand for configs of corresponding dataset.
 2. Modify the config files of the original format and the conversion target format. Change the path in config files.
 3. After edit of config files, run `convert_data.py` script. For example, `python convert_data.py coco yolo` means convert dataset from coco format to yolo.
 
-# [Quick Start](#contents)
+# [Quick Start](#Contents)
 
 <details>
 <summary>Installation</summary>
@@ -164,7 +162,6 @@ You could pass `--help` or `-H` to shell script to see usage in detail.
 
 </details>
 
-
 <details>
 <summary>Evaluation</summary>
 
@@ -172,7 +169,7 @@ You can use the following command to evaluate a model:
 
 ```bash
 # Run evaluation on Ascend/GPU by python command
-python test.py \
+python val.py \
   --weights="path/to/weights.ckpt" \
   --cfg="../config/network/yolov5s.yaml" \
   --data="../config/data/coco.yaml" \
@@ -185,9 +182,8 @@ python test.py \
   --batch_size=32 > log.txt 2>&1 &
 ```
 
-
 The `rect` switch can increase mAP of evaluation result.
-The results in official repository is evaluated with this switch on.
+The [results in official repository](https://github.com/ultralytics/yolov5#pretrained-checkpoints) is evaluated with this switch on.
 Please note this difference when you compare evaluation results of two repositories.
 
 Or you can also use `shell` scripts to do evaluation:
@@ -202,15 +198,14 @@ bash run_standalone_test_ascend.sh -w path/to/weights.ckpt -c ../config/network/
      -h ../config/data/hyp.scratch-low.yaml
 ```
 
-The corresponding config files are in `config` folder. The `coco.yaml` in `config/data` folder is about dataset configs. 
+The corresponding config files are in `config` folder. The `coco.yaml` in `config/data` folder is about dataset configs.
 The `hyp.scratch-low.yaml` are hyperparameters settings. The `yolov5s.yaml` saves model architecture configs.
-
 
 </details>
 
-# [Script Description](#contents)
+# [Script Description](#Contents)
 
-## [Script and Sample Code](#contents)
+## [Script and Sample Code](#Contents)
 
 <details>
     <summary>Click to unfold/fold</summary>
@@ -228,7 +223,7 @@ yolov5
 │   │   ├── hyp.scratch-low.yaml
 │   │   └── hyp.scratch-med.yaml
 │   ├── data_conversion
-│   │   ├── coco.yaml                              // config of coco format dataset 
+│   │   ├── coco.yaml                              // config of coco format dataset
 │   │   ├── labelme.yaml                           // config of labelme format dataset
 │   │   └── yolo.yaml                              // config of yolo format dataset
 │   └── network                                    // configs of model architecture
@@ -248,7 +243,7 @@ yolov5
 ├── export.py
 ├── preprocess.py
 ├── scripts
-│   ├── common.sh                                  // common functions used in shell scripts 
+│   ├── common.sh                                  // common functions used in shell scripts
 │   ├── get_coco.sh
 │   ├── hccl_tools.py                              // generate rank table files for distributed training or evaluation
 │   ├── mpirun_test.sh                             // launch evaluation with OpenMPI
@@ -310,8 +305,7 @@ yolov5
 
 </details>
 
-
-## [Script Parameters](#contents)
+## [Script Parameters](#Contents)
 
 ```text
 Major parameters in train.py are:
@@ -340,10 +334,9 @@ optional arguments:
   --distributed_eval      Distributed evaluation or not. Default: False
 ```
 
+## [Training Process](#Contents)
 
-## [Training Process](#contents)
-
-### Training
+### [Training](#Contents)
 
 For Ascend device, standalone training can be started like this:
 
@@ -365,7 +358,7 @@ You should fine tune the parameters when run training for custom dataset.
 
 The python command above will run in the background.
 
-### Distributed Training
+### [Distributed Training](#Contents)
 
 Distributed training example(8p) by shell script:
 
@@ -379,7 +372,6 @@ bash run_distribute_train_gpu.sh ../config/network/yolov5s.yaml ../config/data/c
      ../config/data/hyp.scratch-low.yaml
 ```
 
-
 You can also use OpenMPI to run distributed training. You should follow the [official tutorial](https://www.mindspore.cn/tutorials/experts/en/r2.0.0-alpha/parallel/train_gpu.html#configuring-distributed-environment)
 to configure OpenMPI environment，then execute the following command：
 
@@ -388,15 +380,15 @@ bash mpirun_train.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.ya
      -h ../config/data/hyp.scratch-low.yaml
 ```
 
-## [Evaluation Process](#contents)
+## [Evaluation Process](#Contents)
 
-### Evaluation
+### [Evaluation](#Contents)
 
 Before running the command below, please check the checkpoint path used for evaluation.
 
 ```shell
 # Run evaluation by python command
-python test.py \
+python val.py \
   --weights="path/to/weights.ckpt" \
   --cfg="../config/network/yolov5s.yaml" \
   --data="../config/data/coco.yaml" \
@@ -421,31 +413,55 @@ The above python command will run in the background. You can view the results th
 
 You can also use OpenMPI to run distributed test. You should follow the [official tutorial](https://www.mindspore.cn/tutorials/experts/en/r2.0.0-alpha/parallel/train_gpu.html#configuring-distributed-environment)
 to configure OpenMPI environment，then execute the following command：
+
 ```bash
 bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
      -h ../config/data/hyp.scratch-low.yaml
 ```
 
+## [Infer Process](#Contents)
 
-## [Infer Process](#contents)
+### [Environment](#Contents)
 
-### [Infer](#contents)
+在昇腾社区下载[MindX SDK 社区版](https://www.hiascend.com/zh/software/mindx-sdk/community)网站中下载对应架构类型版本的`Ascend-mindxsdk-mxmanufacture`软件包，
+推荐下载`run`类型的软件包，当前适配的 `MindX` 版本为 `3.0`。
 
-The model of `ckpt` format can be transformed to `om` format by `atc` tool 
+Download `Ascend-mindxsdk-mxmanufacture` package of community version from [MindX SDK community](https://www.hiascend.com/zh/software/mindx-sdk/community) according to architecture of your device.
+We recommend package with `.run` suffix. We are now support `MindX SDK 3.0` version.
+
+下载完成后，先确定配置好已经配置昇腾框架相关的环境变量，然后使用命令：
+When downloading complete, please firstly make sure you have configured related Ascend environment variables,
+then use the following command to install package:
+
+```shell
+bash Ascend-mindxsdk-mxmanufacture_xxx.run --install
+```
+
+After installation, you can use `python -c "import mindx"` to test whether installation is successful。
+
+If you see error related to `libgobject.so.2`, you need to configure environment variable for library `libffi.so.7`:
+
+- Firstly, use `find / -nane "libffi.so.7"` to find the location of this library file；
+- Then use `export LD_PRELOAD=/path/to/libffi.so.7` to configure environment variable.
+
+### [Infer](#Contents)
+
+The model of `ckpt` format can be transformed to `om` format by `atc` tool
 for doing inference on inference server. The following are steps:
 
 1. Export model with `AIR` format：
   `python export.py --weights /path/to/model.ckpt --file_format AIR`;
 2. Transform model with `AIR` format to `om` format by `atc` tool：
-  `/usr/local/Ascend/lates/atc/bin/atc --model=yolov5s.om --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
+  `/usr/local/Ascend/latest/atc/bin/atc --model=yolov5s.air --framework=1 --output=./yolov5s --input_format=NCHW --input_shape="Inputs:1,3,640,640" --soc_version=Ascend310`,
   the `--soc_version` option can be got by `npu-smi info` command. Supported option choices are `Ascend310`，`Ascend310P3`;
 3. Infer by executing `infer.py` script：`python infer.py --batch_size 1 --om yolov5s.om`
 
+Note that, because dynamic shape is not supported for `om` format, the `rect` switch can not be set. So the mAP is lower than
+the result of checkpoint with `rect` enabled.
 
+# [Model Description](#Contents)
 
-# [Model Description](#contents)
-
-## [Performance](#contents)
+## [Performance](#Contents)
 
 | Model   | size<br><sup>(pixels) | mAP<sup>val<br>50-95<br>rect=True | mAP<sup>val<br>50<br>rect=True | mAP<sup>val<br>50-95<br>rect=False | mAP<sup>val<br>50<br>rect=False | Epoch Time(s) | Throughput<br>(images/s) |
 |---------|-----------------------|-----------------------------------|--------------------------------|------------------------------------|---------------------------------|---------------|--------------------------|
@@ -453,22 +469,25 @@ for doing inference on inference server. The following are steps:
 | YOLOv5s | 640                   | 0.375                             | 0.572                          | 0.373                              | 0.57                            | 79            | 187.14                   |
 | YOLOv5m | 640                   | 0.453                             | 0.637                          | 0.451                              | 0.637                           | 133           | 111.16                   |
 | YOLOv5l | 640                   | 0.489                             | 0.675                          | 0.486                              | 0.671                           | 163           | 90.70                    |
-| YOLOv5x | 640                   |                                   |                                |                                    |                                 | 221           | 66.90                    |
+| YOLOv5x | 640                   | 0.505                             | 0.686                          | 0.506                              | 0.687                           | 221           | 66.90                    |
 
 <details>
 <summary>Note</summary>
 
 - All models are trained to 300 epochs with default settings. Nano and Small models use hyp.scratch-low.yaml hyper-parameters, all others use hyp.scratch-high.yaml.
 - The following are settings used for different models:
+
 ```bash
---data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size 
+--data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size
                                                  yolov5s.yaml                32
                                                  yolov5m.yaml                24
                                                  yolov5l.yaml                24
-                                                 yolov5x.yaml                    
+                                                 yolov5x.yaml                24
 ```
+
 - The result of `Epoch Time` is evaluated on 8 Ascend 910A with batch_size 32 per device.
 - The result of `Throughput` is of single Ascend 910A device.
 - **mAP<sup>val</sup>** values are for single-model single-scale on [COCO val2017](http://cocodataset.org) dataset.<br>The key configs are `--img_size 640 --conf_thres 0.001 --iou_thres 0.65`
+- When data preprocessing is the bottleneck, you can set `--cache_images` to `ram` or `memory` to accelerate preprocessing. Note that `ram` may cause out of memory.
 
 </details>
