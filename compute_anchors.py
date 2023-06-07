@@ -9,7 +9,6 @@ def compute_anchors(args):
     anchors = kmean_anchors(args.dataset, args.num_anchors, args.img_size, args.threshold,
                             args.gen, args.verbose)
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Compute anchors")
     parser.add_argument("--dataset", type=str, default="./config/data/coco.yaml", help="Path to dataset config file.")
