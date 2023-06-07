@@ -326,7 +326,9 @@ class ComputeLoss(nn.Cell):
         return res
 
     def construct(self, p, targets):  # predictions, targets
-        lcls, lbox, lobj = 0., 0., 0.
+        lcls = ms.Tensor(0., dtype=ms.float32)
+        lbox = ms.Tensor(0., dtype=ms.float32)
+        lobj = ms.Tensor(0., dtype=ms.float32)
 
         # class, box, (image, anchor, gridj, gridi), anchors, mask
         tcls, tbox, indices, anchors, tmasks = self.build_targets(p, targets)
