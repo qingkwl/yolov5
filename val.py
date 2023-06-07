@@ -339,11 +339,11 @@ class EvalManager:
         pred_json_path = os.path.join(self.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
         LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
         self.save_json(metric_stats.pred_json, pred_json_path)
-        with SynchronizeManager(opt.rank, opt.rank_size, opt.is_distributed, self.project_dir):
+        with SynchronizeManager(opt.rank, opt.rank_size, opt.distributed_eval, self.project_dir):
             result = COCOResult()
             if opt.rank == 0:
-                pred_json_path, pred_json = pred_json_path, metric_stats.pred_json
-                if opt.is_distributed:
+                pred_json = metric_stats.pred_json
+                if opt.distributed_eval:
                     pred_json_path, pred_json = self._merge_pred_json(prefix=ckpt_name)
                 if opt.result_view or opt.recommend_threshold:
                     try:
@@ -362,7 +362,7 @@ class EvalManager:
         dataset_cfg = self.dataset_cfg
         opt = self.opt
         matrix = ms.Tensor(self.confusion_matrix.matrix)
-        if opt.is_distributed:
+        if opt.distributed_eval:
             matrix = AllReduce()(matrix).asnumpy()
         self.confusion_matrix.matrix = matrix
         if opt.rank == 0:
