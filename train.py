@@ -366,8 +366,9 @@ class TrainManager:
         num_parallel_workers = 4 if opt.rank_size > 1 else 8
         val_dataloader, val_dataset, val_per_epoch_size = create_dataloader(test_path, imgsz, opt.batch_size, gs,
                                                                             opt, epoch_size=epoch_size, pad=0.5,
-                                                                            rect=rect, rank=opt.rank,
-                                                                            rank_size=opt.rank_size,
+                                                                            rect=rect,
+                                                                            rank=opt.rank if opt.distributed_eval else 0,
+                                                                            rank_size=opt.rank_size if opt.distributed_eval else 1,
                                                                             num_parallel_workers=num_parallel_workers,
                                                                             shuffle=False,
                                                                             drop_remainder=False,
