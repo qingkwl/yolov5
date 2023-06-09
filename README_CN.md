@@ -151,6 +151,8 @@ bash run_distribute_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../conf
 
 以上脚本可以输入 `--help` 或者 `-H` 来查看更多详细使用方法。
 
+如果使用自定义的数据集，可以使用 `compute_anchors.py` 计算新的 anchors，使用输出值更新对应模型配置文件中的 `anchors` 项。
+
 </details>
 
 <details>
@@ -222,6 +224,7 @@ yolov5
 │       ├── yolov5n.yaml
 │       ├── yolov5s.yaml
 │       └── yolov5x.yaml
+├── compute_anchors.py                             // compute anchors for specified data
 ├── convert_data.py                                // convert dataset format
 ├── deploy                                         // code for inference
 │   ├── __init__.py
@@ -447,7 +450,7 @@ bash Ascend-mindxsdk-mxmanufacture_xxx.run --install
 
 | Model   | size<br><sup>(pixels) | mAP<sup>val<br>50-95<br>rect=True | mAP<sup>val<br>50<br>rect=True | mAP<sup>val<br>50-95<br>rect=False | mAP<sup>val<br>50<br>rect=False | Epoch Time(s) | Throughput<br>(images/s) |
 |---------|-----------------------|-----------------------------------|--------------------------------|------------------------------------|---------------------------------|---------------|--------------------------|
-| YOLOv5n | 640                   |                                   |                                |                                    |                                 | 66            | 224.00                   |
+| YOLOv5n | 640                   | 0.279                             | 0.459                          | 0.277                              | 0.455                           | 66            | 224.00                   |
 | YOLOv5s | 640                   | 0.375                             | 0.572                          | 0.373                              | 0.57                            | 79            | 187.14                   |
 | YOLOv5m | 640                   | 0.453                             | 0.637                          | 0.451                              | 0.637                           | 133           | 111.16                   |
 | YOLOv5l | 640                   | 0.489                             | 0.675                          | 0.486                              | 0.671                           | 163           | 90.70                    |
@@ -460,7 +463,7 @@ bash Ascend-mindxsdk-mxmanufacture_xxx.run --install
 - 下面为不同模型训练时使用的配置：
 
 ```bash
---data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size
+--data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size 16
                                                  yolov5s.yaml               32
                                                  yolov5m.yaml               24
                                                  yolov5l.yaml               24
@@ -471,5 +474,6 @@ bash Ascend-mindxsdk-mxmanufacture_xxx.run --install
 - `Throughput` 为 Ascend 910A 的单卡吞吐率。
 - **mAP<sup>val</sup>** 在单模型单尺度上计算，数据集使用 [COCO val2017](http://cocodataset.org) 。<br>关键参数为 `--img_size 640 --conf_thres 0.001 --iou_thres 0.65`。
 - 当数据处理为性能瓶颈时，可以设置 `--cache_images` 为 `ram` 或者 `disk`，提升数据处理性能。注意 `ram` 可能会导致 out of memory。
+- `yolov5n` 需要开启 `--sync_bn`。
 
 </details>

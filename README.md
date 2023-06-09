@@ -160,6 +160,9 @@ bash run_distribute_train_gpu.sh ../config/network/yolov5s.yaml ../config/data/c
 
 You could pass `--help` or `-H` to shell script to see usage in detail.
 
+If you want to use custom dataset，you can use `compute_anchors.py` to compute new anchors,
+then use the output anchors to update the `anchors` item in corresponding model config files.
+
 </details>
 
 <details>
@@ -232,6 +235,7 @@ yolov5
 │       ├── yolov5n.yaml
 │       ├── yolov5s.yaml
 │       └── yolov5x.yaml
+├── compute_anchors.py                             // compute anchors for specified data
 ├── convert_data.py                                // convert dataset format
 ├── deploy                                         // code for inference
 │   ├── __init__.py
@@ -465,7 +469,7 @@ the result of checkpoint with `rect` enabled.
 
 | Model   | size<br><sup>(pixels) | mAP<sup>val<br>50-95<br>rect=True | mAP<sup>val<br>50<br>rect=True | mAP<sup>val<br>50-95<br>rect=False | mAP<sup>val<br>50<br>rect=False | Epoch Time(s) | Throughput<br>(images/s) |
 |---------|-----------------------|-----------------------------------|--------------------------------|------------------------------------|---------------------------------|---------------|--------------------------|
-| YOLOv5n | 640                   |                                   |                                |                                    |                                 | 66            | 224.00                   |
+| YOLOv5n | 640                   | 0.279                             | 0.459                          | 0.277                              | 0.455                           | 66            | 224.00                   |
 | YOLOv5s | 640                   | 0.375                             | 0.572                          | 0.373                              | 0.57                            | 79            | 187.14                   |
 | YOLOv5m | 640                   | 0.453                             | 0.637                          | 0.451                              | 0.637                           | 133           | 111.16                   |
 | YOLOv5l | 640                   | 0.489                             | 0.675                          | 0.486                              | 0.671                           | 163           | 90.70                    |
@@ -478,7 +482,7 @@ the result of checkpoint with `rect` enabled.
 - The following are settings used for different models:
 
 ```bash
---data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size
+--data coco.yaml --epochs 300 --weights '' --cfg yolov5n.yaml  --batch-size  16
                                                  yolov5s.yaml                32
                                                  yolov5m.yaml                24
                                                  yolov5l.yaml                24
@@ -489,5 +493,6 @@ the result of checkpoint with `rect` enabled.
 - The result of `Throughput` is of single Ascend 910A device.
 - **mAP<sup>val</sup>** values are for single-model single-scale on [COCO val2017](http://cocodataset.org) dataset.<br>The key configs are `--img_size 640 --conf_thres 0.001 --iou_thres 0.65`
 - When data preprocessing is the bottleneck, you can set `--cache_images` to `ram` or `memory` to accelerate preprocessing. Note that `ram` may cause out of memory.
+- `yolov5n` need enable `--sync_bn`.
 
 </details>
