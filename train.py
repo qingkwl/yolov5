@@ -259,7 +259,9 @@ class TrainManager:
         ms.amp.auto_mixed_precision(model, amp_level=opt.ms_amp_level)
         compute_loss = ComputeLoss(model)  # init loss class
         ms.amp.auto_mixed_precision(compute_loss, amp_level=opt.ms_amp_level)
-        train_step = self.get_train_step(compute_loss, ema, model, optimizer, imgsz=imgsz, gs=gs)
+        loss_scaler = self.get_loss_scaler()
+        train_step = self.get_train_step(compute_loss, ema, model, optimizer,
+                                         gs=gs, imgsz=imgsz, loss_scaler=loss_scaler)
         model.set_train(True)
         optimizer.set_train(True)
         run_profiler_epoch = 2
@@ -421,10 +423,10 @@ class TrainManager:
                 self._modelarts_sync(ema_ckpt_path,
                                      opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
 
-    def get_train_step(self, compute_loss, ema, model, optimizer, gs, imgsz):
+    def get_train_step(self, compute_loss, ema, model, optimizer, gs, imgsz, loss_scaler):
         if self.opt.ms_strategy == "StaticShape":
             train_step = create_train_network(model, compute_loss, ema, optimizer,
-                                              loss_scaler=None, sens=self.opt.ms_grad_sens, opt=self.opt,
+                                              loss_scaler=loss_scaler, sens=self.opt.ms_grad_sens, opt=self.opt,
                                               enable_clip_grad=self.hyp["enable_clip_grad"],
                                               gs=gs, imgsz=imgsz)
         else:
