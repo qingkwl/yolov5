@@ -307,8 +307,8 @@ class TrainManager:
         ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
 
         data_size = dataloader.get_dataset_size()
-        jit = opt.ms_mode.lower() == "graph"
-        sink_process = ms.data_sink(train_step, dataloader, steps=data_size * opt.epochs, sink_size=data_size, jit=jit)
+        jit = ms.JitConfig() if opt.ms_mode.lower() == "graph" else None
+        sink_process = ms.data_sink(train_step, dataloader, sink_size=data_size, jit_config=jit)
 
         summary_dir = os.path.join(opt.save_dir, opt.summary_dir, f"rank_{opt.rank}")
         steps_per_epoch = data_size

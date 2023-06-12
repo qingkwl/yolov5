@@ -20,7 +20,6 @@ import numpy as np
 import mindspore as ms
 import mindspore.common.dtype as mstype
 from mindspore import nn
-from mindspore._checkparam import Validator
 from mindspore.common.api import ms_function
 from mindspore.common.parameter import Parameter
 from mindspore.common.tensor import Tensor
@@ -178,7 +177,7 @@ class YoloMomentum(nn.Optimizer):
             self.momentum = Parameter(np.array(momentum).astype(np.float32), name="momentum")
             self.list_moment = True
         self.params = self._parameters
-        self.use_nesterov = Validator.check_bool(use_nesterov)
+        self.use_nesterov = use_nesterov
         self.moments = self.params.clone(prefix="moments", init='zeros')
         self.opt = P.ApplyMomentum(use_nesterov=self.use_nesterov)
 

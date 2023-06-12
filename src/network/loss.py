@@ -127,14 +127,14 @@ def bbox_iou(box1, box2, xywh=True, g_iou=False, d_iou=False, c_iou=False, eps=1
 
     # Get the coordinates of bounding boxes
     if xywh:  # transform from xywh to xyxy
-        x1, y1, w1, h1 = ops.split(box1, 1, 4)
-        x2, y2, w2, h2 = ops.split(box2, 1, 4)
+        x1, y1, w1, h1 = ops.tensor_split(box1, 4, 1)
+        x2, y2, w2, h2 = ops.tensor_split(box2, 4, 1)
         w1_, h1_, w2_, h2_ = w1 / 2, h1 / 2, w2 / 2, h2 / 2
         b1_x1, b1_x2, b1_y1, b1_y2 = x1 - w1_, x1 + w1_, y1 - h1_, y1 + h1_
         b2_x1, b2_x2, b2_y1, b2_y2 = x2 - w2_, x2 + w2_, y2 - h2_, y2 + h2_
     else:  # x1, y1, x2, y2 = box1
-        b1_x1, b1_y1, b1_x2, b1_y2 = ops.split(box1, 1, 4)
-        b2_x1, b2_y1, b2_x2, b2_y2 = ops.split(box2, 1, 4)
+        b1_x1, b1_y1, b1_x2, b1_y2 = ops.tensor_split(box1, 4, 1)
+        b2_x1, b2_y1, b2_x2, b2_y2 = ops.tensor_split(box2, 4, 1)
         w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1
         w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1
 
@@ -340,7 +340,7 @@ class ComputeLoss(nn.Cell):
         for layer_index, pi in enumerate(p):  # layer index, layer predictions
             pi = ops.cast(pi, ms.float32)
             tmask = tmasks[layer_index]
-            b, a, gj, gi = ops.split(indices[layer_index] * tmask[None, :], 0, 4)  # image, anchor, gridy, gridx
+            b, a, gj, gi = ops.tensor_split(indices[layer_index] * tmask[None, :], 4, 0)  # image, anchor, gridy, gridx
             b, a, gj, gi = b.view(-1), a.view(-1), gj.view(-1), gi.view(-1)
             tobj = ops.zeros(pi.shape[:4], pi.dtype)  # target obj
 

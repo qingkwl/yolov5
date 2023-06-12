@@ -266,7 +266,7 @@ class Detect(nn.Cell):
 
     @staticmethod
     def _make_grid(nx=20, ny=20, dtype=ms.float32):
-        xv, yv = ops.meshgrid((mnp.arange(nx), mnp.arange(ny)))
+        xv, yv = ops.meshgrid(mnp.arange(nx), mnp.arange(ny))
         return ops.cast(ops.stack((xv, yv), 2).view((1, 1, ny, nx, 2)), dtype)
 
 
