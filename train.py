@@ -297,7 +297,7 @@ class TrainManager:
         return 0
 
     def dump_cfg(self):
-        if self.opt.rank != 0:
+        if self.opt.rank % 8 != 0:
             return
         save_dir = self.opt.save_dir
         # with open(os.path.join(save_dir, "hyp.yaml"), 'w') as f:
@@ -369,8 +369,8 @@ class TrainManager:
         val_dataloader, val_dataset, val_per_epoch_size = create_dataloader(test_path, imgsz, opt.batch_size, gs,
                                                                             opt, epoch_size=epoch_size, pad=0.5,
                                                                             rect=rect,
-                                                                            rank=opt.rank if opt.distributed_eval else 0,
-                                                                            rank_size=opt.rank_size if opt.distributed_eval else 1,
+                                                                            rank=(opt.rank % 8) if opt.distributed_eval else 0,
+                                                                            rank_size=min(8, opt.rank_size) if opt.distributed_eval else 1,
                                                                             num_parallel_workers=num_parallel_workers,
                                                                             shuffle=False,
                                                                             drop_remainder=False,

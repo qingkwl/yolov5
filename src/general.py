@@ -298,12 +298,6 @@ class Synchronize:
     def __call__(self):
         sync = ms.Tensor(np.array([1]).astype(np.int32))
         sync = self.all_reduce(sync)  # For synchronization
-        sync = sync.asnumpy()[0]
-        if sync != self.rank_size:
-            raise ValueError(
-                f"Sync value {sync} is not equal to number of device {self.rank_size}. "
-                f"There might be wrong with devices."
-            )
 
 
 def methods(instance):
@@ -533,24 +527,28 @@ class SynchronizeManager:
         self.rank_size = rank_size
         self.distributed = distributed  # whether distributed or not
         self.sync = Synchronize(rank_size) if (distributed and rank_size > 1) else None
-        self.sync_file = os.path.join(project_dir, 'sync_file.temp')
+        self.sync_file = os.path.join(project_dir, f'sync_file_{rank}.temp')
+        self.project_dir = project_dir
 
     def __enter__(self):
         if self.distributed:
-            if self.rank == 0:
-                LOGGER.info(f"Create sync file {self.sync_file}")
-                os.mknod(self.sync_file)
-            if self.sync is not None:
-                self.sync()
+            os.mknod(self.sync_file)
         return self.sync_file
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if not self.distributed:
             return
-        if self.rank == 0:
-            if os.path.exists(self.sync_file):
-                LOGGER.info(f"Delete sync file {self.sync_file}")
-                os.remove(self.sync_file)
+        if self.rank % 8 == 0:
+            while True:
+                json_files =  list(Path(self.project_dir).rglob("sync_file*.temp"))
+                if len(json_files) != self.rank_size:
+                    time.sleep(1)
+                    LOGGER.info("Waiting...")
+                else:
+                    break
+            for json_file in json_files:
+                LOGGER.info(f"Delete sync file {json_file}")
+                os.remove(json_file)
         else:
             LOGGER.info(f"Waiting for rank [0] device...")
             while os.path.exists(self.sync_file):

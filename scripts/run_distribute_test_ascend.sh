@@ -41,8 +41,9 @@ if [ -z "$WEIGHTS" ]; then
     exit 1
 fi
 
+export SERVER_ID=0
 export DEVICE_NUM=$DEVICE_NUM
-export RANK_SIZE=$DEVICE_NUM
+export RANK_SIZE=$((DEVICE_NUM * $((SERVER_ID + 1))))
 export RANK_TABLE_FILE=$RANK_TABLE_FILE
 export MINDSPORE_HCCL_CONFIG_PATH=$RANK_TABLE_FILE
 
@@ -62,7 +63,7 @@ do
     end=$((start + gap))
     cmdopt="${start}-${end}"
     export DEVICE_ID=$((i + start_device_id))
-    export RANK_ID=$i
+    export RANK_ID=$((i + $((SERVER_ID * DEVICE_NUM))))
     sub_dir="${eval_exp}/eval_parallel${i}"
     copy_files_to "$sub_dir"
     cd "${sub_dir}" || exit
