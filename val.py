@@ -321,10 +321,10 @@ class EvalManager:
             coco_result = self._save_eval_result(metric_stats)
 
         # Return results
-        if not self.training and opt.rank == 0:
+        if not self.training and opt.rank % 8 == 0:
             self.save_map(coco_result)
         maps = np.zeros(dataset_cfg['nc']) + coco_result.get_map()
-        if opt.rank == 0:
+        if opt.rank % 8 == 0:
             for i, c in enumerate(metric_stats.ap_cls):
                 maps[c] = metric_stats.ap[i]
 
@@ -339,9 +339,9 @@ class EvalManager:
         pred_json_path = os.path.join(self.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
         LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
         self.save_json(metric_stats.pred_json, pred_json_path)
-        with SynchronizeManager(opt.rank, opt.rank_size, opt.distributed_eval, self.project_dir):
+        with SynchronizeManager(opt.rank % 8, min(8, opt.rank_size), opt.distributed_eval, self.project_dir):
             result = COCOResult()
-            if opt.rank == 0:
+            if opt.rank % 8 == 0:
                 pred_json = metric_stats.pred_json
                 if opt.distributed_eval:
                     pred_json_path, pred_json = self._merge_pred_json(prefix=ckpt_name)
@@ -365,14 +365,22 @@ class EvalManager:
         if opt.distributed_eval:
             matrix = AllReduce()(matrix).asnumpy()
         self.confusion_matrix.matrix = matrix
-        if opt.rank == 0:
+        if opt.rank % 8 == 0:
             self.confusion_matrix.plot(save_dir=self.save_dir, names=list(dataset_cfg['names'].values()))
 
     def _merge_pred_json(self, prefix=''):
         LOGGER.info("Merge detection results...")
         merged_json = os.path.join(self.project_dir, f"{prefix}_predictions_merged.json")
         merged_result = []
-        for json_file in Path(self.project_dir).rglob("*.json"):
+        # Waiting
+        while True:
+            json_files = list(Path(self.project_dir).rglob("*.json"))
+            if len(json_files) != min(8, self.opt.rank_size):
+                time.sleep(1)
+                LOGGER.info("Waiting for json file...")
+            else:
+                break
+        for json_file in json_files:
             LOGGER.info(f"Merge {json_file.resolve()}")
             with open(json_file, "r") as file_handler:
                 merged_result.extend(json.load(file_handler))
@@ -433,8 +441,8 @@ class EvalManager:
             dataloader, dataset, per_epoch_size = create_dataloader(data_cfg[task], self.img_size, self.opt.batch_size,
                                                                     self.grid_size, self.opt,
                                                                     epoch_size=1, pad=0.5, rect=self.opt.rect,
-                                                                    rank=rank,
-                                                                    rank_size=rank_size,
+                                                                    rank=rank % 8,
+                                                                    rank_size=min(8, rank_size),
                                                                     num_parallel_workers=4 if rank_size > 1 else 8,
                                                                     shuffle=False,
                                                                     drop_remainder=False,
@@ -607,7 +615,7 @@ class EvalManager:
         if opt.distributed_eval:
             metric_stats.seen = self.reduce_sum(ms.Tensor(np.array(metric_stats.seen, dtype=np.int32))).asnumpy()
             self.synchronize()
-        if self.opt.rank != 0:
+        if self.opt.rank % 8 != 0:
             return
 
         pred_stats: list[list] = self._merge_pred_stats(metric_stats)
@@ -661,7 +669,7 @@ def main():
     # Distribute Test
     if opt.distributed_eval:
         init()
-        rank, rank_size, parallel_mode = get_rank(), get_group_size(), ParallelMode.DATA_PARALLEL
+        rank, rank_size, parallel_mode = get_rank() % 8, min(8, get_group_size()), ParallelMode.DATA_PARALLEL
     context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size)
     opt.rank_size = rank_size
     opt.rank = rank
