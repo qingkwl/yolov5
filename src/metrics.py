@@ -207,7 +207,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
             i, j = (x[:, 5:] > conf_thres).nonzero()
             x = np.concatenate((box[i], x[i, j + 5, None], j[:, None].astype(np.float32)), 1)
         else:  # best class only
-            conf, j = x[:, 5:].max(1, keepdim=True)
+            conf, j = x[:, 5:].max(1, keepdims=True)
             x = np.concatenate((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
 
         # Filter by class
@@ -232,7 +232,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
             # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
             iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix # (N, M)
             weights = iou * scores[None]  # box weights
-            x[i, :4] = np.matmul(weights, x[:, :4]) / weights.sum(1, keepdim=True)  # merged boxes
+            x[i, :4] = np.matmul(weights, x[:, :4]) / weights.sum(1, keepdims=True)  # merged boxes
             if redundant:
                 i = i[iou.sum(1) > 1]  # require redundancy
 
