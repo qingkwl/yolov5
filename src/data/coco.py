@@ -174,7 +174,7 @@ class COCOManager(BaseManager):
                     new_img_name = f'{img_id:012d}.jpg'
                     bboxes, segments = self._get_boxes(img, anns, category_map, use_segments)
                     # Write
-                    with os.fdopen(os.open((label_folder / file_name).with_suffix('.txt'),
+                    with os.fdopen(os.open((label_folder / new_img_name).with_suffix('.txt'),
                                            WRITE_FLAGS, FILE_MODE), 'a') as file:
                         for i, box in enumerate(bboxes):
                             line = (*(segments[i] if use_segments else box),)  # cls, box or segments

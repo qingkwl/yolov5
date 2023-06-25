@@ -46,8 +46,11 @@ def check_anchors(dataset, model, thr=4.0, imgsz=640):
     wh = np.concatenate([l[:, 3:5] * s for s, l in zip(shapes * scale, dataset.labels)], dtype=np.float32)  # wh
 
     def metric(k):  # compute metric
-        r = wh[:, None] / k[None]
-        x = np.minimum(r, 1 / r).min(2)  # ratio metric
+        k_ms = ms.Tensor(k, dtype=ms.float32)
+        wh_ms = ms.Tensor(wh, dtype=ms.float32)
+        r = ms.ops.expand_dims(wh_ms, 1) / ms.ops.expand_dims(k_ms, 0)
+        x = ms.ops.minimum(r, 1 / r).min(2)  # ratio metric
+        x = x.asnumpy()
         best = x.max(1)[0]  # best_x
         aat = (x > 1 / thr).sum(1).mean()  # anchors above threshold
         bpr = (best > 1 / thr).mean()  # best possible recall
@@ -62,17 +65,19 @@ def check_anchors(dataset, model, thr=4.0, imgsz=640):
         LOGGER.info(f'{s}Current anchors are a good fit to dataset ✅')
     else:
         LOGGER.info(f'{s}Anchors are a poor fit to dataset ⚠️, attempting to improve...')
-        na = m.anchors.numel() // 2  # number of anchors
+        na = ops.size(m.anchors) // 2  # number of anchors
         anchors = kmean_anchors(dataset, n=na, img_size=imgsz, thr=thr, gen=1000, verbose=False)
         new_bpr = metric(anchors)[0]
         if new_bpr > bpr:  # replace anchors
-            m.anchors[:] = ms.Tensor(anchors.reshape(m.anchors.shape), dtype=ms.float32)
-            check_anchor_order(m)  # must be in pixel-space (not grid-space)
-            m.anchors /= stride
-            s = f'Done ✅ (optional: update model *.yaml to use these anchors in the future)'
+            # m.anchors[:] = ms.Tensor(anchors.reshape(m.anchors.shape), dtype=ms.float32)
+            # check_anchor_order(m)  # must be in pixel-space (not grid-space)
+            # m.anchors /= stride
+            # s = f'Done ✅ (optional: update model *.yaml to use these anchors in the future)'
+            return anchors
         else:
-            s = f'Done ⚠️ (original anchors better than new anchors, proceeding with original anchors)'
-        LOGGER.info(s)
+            return None
+            # s = f'Done ⚠️ (original anchors better than new anchors, proceeding with original anchors)'
+        # LOGGER.info(s)
 
 
 def kmean_anchors(dataset='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=1000, verbose=True):
