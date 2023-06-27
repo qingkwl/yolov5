@@ -99,6 +99,8 @@ class MetricStatistics:
 
         self.seen = 0
         self.confusion_matrix = None
+        self.nt = None
+
 
     def __iter__(self):
         for _, val in vars(self).items():
@@ -118,6 +120,9 @@ class MetricStatistics:
 
     def get_mean_stats(self):
         return self.mp, self.mr, self.map50, self.map
+
+    def get_map(self):
+        return self.map
 
     def compute_ap_per_class(self, plot=False, save_dir='.', names=()):
         tp, conf, pred_class, target_cls = self.pred_stats
@@ -628,6 +633,7 @@ class EvalManager:
         if not empty(pred_stats) and pred_stats[0].any():
             metric_stats.compute_ap_per_class(plot=opt.plots, save_dir=self.save_dir, names=self.dataset_cfg['names'])
         nt = np.bincount(pred_stats[3].astype(int), minlength=nc)  # number of targets per class
+        metric_stats.nt = nt
 
         # Print results
         title = ('{:22s}' + '{:11s}' * 6).format('Class', 'Images', 'Instances', 'P', 'R', 'mAP50', 'mAP50-95')

@@ -139,6 +139,7 @@ def get_args_train():
                         help='Whether do evaluation after some epoch')
     parser.add_argument('--eval_start_epoch', type=int, default=200, help='Start epoch interval to do evaluation')
     parser.add_argument('--eval_epoch_interval', type=int, default=10, help='Epoch interval to do evaluation')
+    parser.add_argument('--metric', type=str, default='coco', help='Specify which map metric to use, support coco/yolo')
 
     # args for ModelArts
     parser.add_argument('--enable_modelarts', type=ast.literal_eval, default=False, help='enable modelarts')

@@ -427,13 +427,9 @@ bash mpirun_test.sh --w path/to/weights.ckpt -c ../config/network/yolov5s.yaml -
 
 ### [Environment](#Contents)
 
-在昇腾社区下载[MindX SDK 社区版](https://www.hiascend.com/zh/software/mindx-sdk/community)网站中下载对应架构类型版本的`Ascend-mindxsdk-mxmanufacture`软件包，
-推荐下载`run`类型的软件包，当前适配的 `MindX` 版本为 `3.0`。
-
 Download `Ascend-mindxsdk-mxmanufacture` package of community version from [MindX SDK community](https://www.hiascend.com/zh/software/mindx-sdk/community) according to architecture of your device.
 We recommend package with `.run` suffix. We are now support `MindX SDK 3.0` version.
 
-下载完成后，先确定配置好已经配置昇腾框架相关的环境变量，然后使用命令：
 When downloading complete, please firstly make sure you have configured related Ascend environment variables,
 then use the following command to install package:
 

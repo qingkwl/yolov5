@@ -34,12 +34,13 @@ from mindspore.ops import functional as F
 from mindspore.profiler.profiling import Profiler
 
 from config.args import get_args_train
-from val import EvalManager
+from val import EvalManager, MetricStatistics, COCOResult
+from src.autoanchor import check_anchors, check_anchor_order
 from src.boost import build_train_network
 from src.dataset import create_dataloader
 from src.general import (check_file, check_img_size, colorstr, increment_path,
                          labels_to_class_weights, LOGGER, process_dataset_cfg, empty,
-                         WRITE_FLAGS, FILE_MODE)
+                         WRITE_FLAGS, FILE_MODE, SynchronizeManager)
 from src.network.common import EMA
 from src.network.loss import ComputeLoss
 from src.network.yolo import Model
@@ -158,7 +159,12 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
     test_manager = EvalManager(opt)
     val_result = test_manager.eval(infer_model, val_dataset, val_dataloader, cur_epoch)
     infer_model.set_train(True)
-    return val_result.coco_result
+    # Return corresponding result according to config
+    if opt.metric == 'yolo':
+        return val_result.metric_stats
+    else:
+        return val_result.coco_result
+
 
 
 def save_ema(ema, ema_ckpt_path, append_dict=None):
@@ -193,10 +199,24 @@ class TrainManager:
     @staticmethod
     def _write_map_result(coco_result, map_str_path, names):
         with os.fdopen(os.open(map_str_path, WRITE_FLAGS, FILE_MODE), 'w') as file:
-            file.write(f"COCO API:\n{coco_result.stats_str}\n")
-            if coco_result.category_stats_strs is not None:
-                for idx, category_str in enumerate(coco_result.category_stats_strs):
-                    file.write(f"\nclass {names[idx]}:\n{category_str}\n")
+            if isinstance(coco_result, COCOResult):
+                file.write(f"COCO API:\n{coco_result.stats_str}\n")
+                if coco_result.category_stats_strs is not None:
+                    for idx, category_str in enumerate(coco_result.category_stats_strs):
+                        file.write(f"\nclass {names[idx]}:\n{category_str}\n")
+            elif isinstance(coco_result, MetricStatistics):
+                title = ('{:22s}' + '{:11s}' * 6).format('Class', 'Images', 'Instances', 'P', 'R', 'mAP50', 'mAP50-95')
+                pf = '{:<20s}' + '{:<12d}' * 2 + '{:<12.3g}' * 4  # print format
+                file.write(f"{title}\n")
+                file.write(pf.format('all', coco_result.seen, coco_result.nt.sum(), *coco_result.get_mean_stats()))
+                file.write("\n")
+                for i, c in enumerate(coco_result.ap_cls):
+                    # Class     Images  Instances          P          R      mAP50   mAP50-95:
+                    file.write(pf.format(names[c], coco_result.seen, coco_result.nt[c],
+                                         *coco_result.get_ap_per_class(i)) + '\n')
+            else:
+                raise TypeError(f"Not supported coco_result type: {type(coco_result)}")
+
 
     def train(self):
         set_seed()
@@ -240,6 +260,24 @@ class TrainManager:
         if opt.save_checkpoint or opt.run_eval:
             infer_model = copy.deepcopy(model) if opt.ema else model
             val_dataloader, val_dataset, _ = self.get_dataset(model, epoch_size=1, mode="val")
+
+        if not opt.resume and not opt.noautoanchor:
+            anchors_path = Path(opt.save_dir) / 'anchors.npy'
+            with SynchronizeManager(opt.rank % 8, min(8, opt.rank_size), opt.distributed_train, opt.save_dir):
+                anchors = check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
+                if anchors is not None:
+                    # Save to save_dir
+                    np.save(str(anchors_path.resolve()), anchors)
+            if anchors_path.exists():
+                # Each rank load anchors
+                anchors = np.load(str(anchors_path.resolve()))
+                model.anchors[:] = ms.Tensor(anchors.reshape(model.anchors.shape), dtype=ms.float32)
+                check_anchor_order(model)
+                info = f'Done ✅ (optional: update model *.yaml to use these anchors in the future)'
+            else:
+                info = f'Done ⚠️ (original anchors better than new anchors, proceeding with original anchors)'
+            LOGGER.info(info)
+
         mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
         assert mlc < num_cls, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g'\
                               % (mlc, num_cls, opt.data, num_cls - 1)
