@@ -318,7 +318,10 @@ class EvalManager:
         coco_result = COCOResult()
         # Save JSON
         if opt.save_json and not empty(metric_stats.pred_json):
-            coco_result = self._save_eval_result(metric_stats)
+            try:
+                coco_result = self._save_eval_result(metric_stats)
+            except Exception:
+                LOGGER.exception("Error when evaluating COCO mAP")
 
         # Return results
         if not self.training and opt.rank % 8 == 0:
