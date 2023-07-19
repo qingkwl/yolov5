@@ -114,7 +114,7 @@ class Model(nn.Cell):
             f = (None, 3, None)  # flips (2-ud, 3-lr)
             y = ()  # outputs
             for si, fi in zip(s, f):
-                xi = scale_img(ops.ReverseV2([fi])(x) if fi else x, si, gs=_get_stride_max(self.stride_np))
+                xi = scale_img(ops.ReverseV2([fi])(x) if fi else x, si, gs=_get_stride_max(self.stride))
                 yi = self.forward_once(xi)[0]  # forward
                 yi[..., :4] /= si  # de-scale
                 if fi == 2:
