@@ -152,10 +152,6 @@ bash run_standalone_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../conf
 # For Ascend device, distributed training example(8p) by shell script
 bash run_distribute_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
      -h ../config/data/hyp.scratch-low.yaml -r hccl_8p_xx.json
-
-# For GPU device, distributed training example(8p) by shell script
-bash run_distribute_train_gpu.sh ../config/network/yolov5s.yaml ../config/data/coco.yaml \
-     ../config/data/hyp.scratch-low.yaml
 ```
 
 You could pass `--help` or `-H` to shell script to see usage in detail.
@@ -342,13 +338,26 @@ optional arguments:
 
 ### [Training](#Contents)
 
-For Ascend device, standalone training can be started like this:
+For Ascend device, you can use `shell` scripts. The scripts support training on single or multiple devices.
+The command are in the following:
+
+```bash
+# Run 1p by shell script, please change `device_target` in config file to run on Ascend/GPU, and change `T_max`, `max_epoch`, `warmup_epochs` refer to contents of notes
+bash run_standalone_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml
+
+# For Ascend device, distributed training example(8p) by shell script
+bash run_distribute_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml -r hccl_8p_xx.json
+```
+
+
+Or you can use the following command to start standalone training:
 
 ```shell
 # Run training example(1p) on Ascend/GPU by python command
 python train.py \
     --ms_strategy="StaticShape" \
-    --overflow_still_update=True \
     --optimizer="momentum" \
     --cfg="../config/network/yolov5s.yaml" \
     --data="../config/data/coco.yaml" \
@@ -357,6 +366,9 @@ python train.py \
     --epochs=300 \
     --batch_size=32  > log.txt 2>&1 &
 ```
+
+**We recommend do training by running shell script.**
+
 
 You should fine tune the parameters when run training for custom dataset.
 

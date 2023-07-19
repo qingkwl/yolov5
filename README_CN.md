@@ -331,13 +331,25 @@ optional arguments:
 
 ### [训练](#目录)
 
-对于 Ascend 设备，可以使用以下命令进行单卡训练：
+对于 Ascend 设备，可以使用 `shell` 脚本。脚本支持单卡和多卡训练，使用指令如下：
+
+```bash
+# Run 1p by shell script, please change `device_target` in config file to run on Ascend/GPU, and change `T_max`, `max_epoch`, `warmup_epochs` refer to contents of notes
+bash run_standalone_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml
+
+# For Ascend device, distributed training example(8p) by shell script
+bash run_distribute_train_ascend.sh -c ../config/network/yolov5s.yaml -d ../config/data/coco.yaml \
+     -h ../config/data/hyp.scratch-low.yaml -r hccl_8p_xx.json
+```
+
+
+也可以使用以下命令进行单卡训练：
 
 ```shell
 # Run training example(1p) on Ascend/GPU by python command
 python train.py \
     --ms_strategy="StaticShape" \
-    --overflow_still_update=True \
     --optimizer="momentum" \
     --cfg="../config/network/yolov5s.yaml" \
     --data="../config/data/coco.yaml" \
@@ -346,6 +358,9 @@ python train.py \
     --epochs=300 \
     --batch_size=32  > log.txt 2>&1 &
 ```
+
+**推荐使用脚本运行方式。**
+
 
 对于自定义数据集，您可能需要微调模型的超参数。以上 `Python` 命令会在后台运行。
 
