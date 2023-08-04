@@ -25,6 +25,9 @@ from mindspore.train.amp import (_add_loss_network, _check_kwargs,
                                  _check_level, _config_level,
                                  _do_keep_batchnorm_fp32, _get_pipeline_stages,
                                  auto_mixed_precision, validator)
+from mindspore.amp import all_finite
+from src.general import LOGGER
+
 
 GRADIENT_CLIP_TYPE = 1
 GRADIENT_CLIP_VALUE = 10.0
@@ -62,27 +65,32 @@ class _BoostTrainPipelineAccuStepCell(_TrainPipelineAccuStepCell):
         self.use_loss_scaler = amp_loss_scaler is not None
         self.enable_clip_grad = enable_clip_grad
         self.amp_loss_scaler = amp_loss_scaler
-        print(f"[INFO] Enable loss scale: {self.use_loss_scaler}", flush=True)
-        print(f"[INFO] Enable enable_clip_grad: {self.enable_clip_grad}", flush=True)
+        LOGGER.info(f"Enable loss scale: {self.use_loss_scaler}")
+        LOGGER.info(f"Enable enable_clip_grad: {self.enable_clip_grad}")
 
     def construct(self, *inputs):
         weights = self.weights
         loss = self.network(*inputs)
         sens = ops.Fill()(ops.DType()(loss), ops.Shape()(loss), self.sens)
         grads = self.grad(self.network, weights)(*inputs, sens)
-        if self.use_loss_scaler:
-            grads = self.amp_loss_scaler.unscale(grads)
-        if self.enable_clip_grad:
-            grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
-        accu_grads = ops.depend(self.accu_grads, grads)
-        if self.opt_shard:
-            succ = self.optimizer(grads)
+        grads = self.grad_reducer(grads)
+        is_finite = all_finite(grads)
+        if is_finite:
+            if self.use_loss_scaler:
+                grads = self.amp_loss_scaler.unscale(grads)
+            if self.enable_clip_grad:
+                grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
+            accu_grads = ops.depend(self.accu_grads, grads)
+            if self.opt_shard:
+                succ = self.optimizer(grads)
+            else:
+                succ = self.optimizer(accu_grads)
+            loss = ops.depend(loss, succ)
+            clear = self.hyper_map(_pipeline_clear_grad, accu_grads, grads)
+            loss = ops.depend(loss, clear)
+            loss = F.depend(loss, self.ema.update())
         else:
-            succ = self.optimizer(accu_grads)
-        loss = ops.depend(loss, succ)
-        clear = self.hyper_map(_pipeline_clear_grad, accu_grads, grads)
-        loss = ops.depend(loss, clear)
-        loss = F.depend(loss, self.ema.update())
+            ops.print_("[WARNING] Grad infinite. Skip updating.")
         return loss
 
 
@@ -94,20 +102,24 @@ class _TrainOneStepCell(TrainOneStepCell):
         self.amp_loss_scaler = amp_loss_scaler
         self.enable_clip_grad = enable_clip_grad
         self.hyper_map = ops.HyperMap()
-        print(f"[INFO] Enable loss scale: {self.use_loss_scaler}", flush=True)
-        print(f"[INFO] Enable enable_clip_grad: {self.enable_clip_grad}", flush=True)
+        LOGGER.info(f"Enable loss scale: {self.use_loss_scaler}")
+        LOGGER.info(f"Enable enable_clip_grad: {self.enable_clip_grad}")
 
     def construct(self, *inputs):
         loss = self.network(*inputs)
         sens = F.fill(loss.dtype, loss.shape, self.sens)
         grads = self.grad(self.network, self.weights)(*inputs, sens)
         grads = self.grad_reducer(grads)
-        if self.use_loss_scaler:
-            grads = self.amp_loss_scaler.unscale(grads)
-        if self.enable_clip_grad:
-            grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
-        loss = F.depend(loss, self.optimizer(grads))
-        loss = F.depend(loss, self.ema.update())
+        is_finite = all_finite(grads)
+        if is_finite:
+            if self.use_loss_scaler:
+                grads = self.amp_loss_scaler.unscale(grads)
+            if self.enable_clip_grad:
+                grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
+            loss = F.depend(loss, self.optimizer(grads))
+            loss = F.depend(loss, self.ema.update())
+        else:
+            ops.print_("[WARNING] Grad infinite. Skip updating.")
         return loss
 
 
@@ -122,28 +134,36 @@ class _BoostTrainOneStepCell(BoostTrainOneStepCell):
         print(f"[INFO] Enable enable_clip_grad: {self.enable_clip_grad}", flush=True)
 
     def construct(self, *inputs):
+        is_finite = True
         if self.freeze:
             loss = self.gradient_freeze_process(*inputs)
+            is_finite = ops.isfinite(loss)
+            if not is_finite:
+                ops.print_("[WARNING] Loss infinite.")
         else:
             loss = self.network(*inputs)
             sens = F.fill(loss.dtype, loss.shape, self.sens)
             grads = self.grad(self.network, self.weights)(*inputs, sens)
             grads = self.grad_reducer(grads)
-            if self.use_loss_scaler:
-                grads = self.amp_loss_scaler.unscale(grads)
-            if self.use_grad_accumulation:
-                loss = self.gradient_accumulation_process(loss, grads, sens, *inputs)
-            else:
-                if self.enable_dim_reduce:
-                    loss = F.depend(loss, self.dim_reduce(loss, grads, sens, self.weights, self.weights_clone, *inputs))
-                elif self.enable_adasum:
-                    loss = F.depend(loss, self.adasum_process(loss, grads))
+            is_finite = all_finite(grads)
+            if is_finite:
+                if self.use_loss_scaler:
+                    grads = self.amp_loss_scaler.unscale(grads)
+                if self.use_grad_accumulation:
+                    loss = self.gradient_accumulation_process(loss, grads, sens, *inputs)
                 else:
-                    if self.enable_clip_grad:
-                        grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
-                    loss = F.depend(loss, self.optimizer(grads))
-
-        loss = F.depend(loss, self.ema.update())
+                    if self.enable_dim_reduce:
+                        loss = F.depend(loss, self.dim_reduce(loss, grads, sens, self.weights, self.weights_clone, *inputs))
+                    elif self.enable_adasum:
+                        loss = F.depend(loss, self.adasum_process(loss, grads))
+                    else:
+                        if self.enable_clip_grad:
+                            grads = self.hyper_map(F.partial(clip_grad, GRADIENT_CLIP_TYPE, GRADIENT_CLIP_VALUE), grads)
+                        loss = F.depend(loss, self.optimizer(grads))
+            else:
+                ops.print_("[WARNING] Grad infinite. Skip updating.")
+        if is_finite:
+            loss = F.depend(loss, self.ema.update())
         return loss
 
 

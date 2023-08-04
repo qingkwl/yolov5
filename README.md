@@ -23,7 +23,8 @@
     - [Environment](#[Environment](#Contents))
     - [Infer](#[Infer](#Contents))
 - [Model Description](#[Model Description](#Contents))
-  - [Performance](#[Performance](#Contents))
+- [Performance](#[Performance](#Contents))
+- [Q&A](#[Q&A](#Contents))
 
 </details>
 
@@ -504,3 +505,42 @@ the result of checkpoint with `rect` enabled.
 - `yolov5n` need enable `--sync_bn`.
 
 </details>
+
+
+## [Q&A](#Contents)
+
+1. cannot allocate memory in static TLS block
+```txt
+ImportError: /xxx/scikit_image.libs/libgomp-xxx.so: cannot allocate memory in static TLS block
+It seems that scikit-image has not been built correctly.
+```
+
+This error is not caused by our code, but some packages depend on `scikit-image` package. Generally, you can change the 
+import order to solve this error by adding `import sklearn` or `import skimage` at the beginning of
+the `train.py`.
+
+If this still cannot solve the problem, you can search for this error to find other solution. 
+
+<br>
+<br>
+
+2. During the training, `loss` suddenly increases to a large value(generally `lobj loss` causes this), or some loss is `nan`。
+
+This problem is caused by overflow during the training process. Overflow makes `loss` becomes `nan`, and after updating 
+the the model, the value weights will become very large. This usually appears when training small dataset with just one class.
+
+If you come into this problem, you can change the `enable_clip_grad` to `True` in `hyp-scratch.xx.yaml` to enable gradient clip.
+Besides, in our updated code, we add overflow detection. When we detect that the overflow happens, we will skip the update of this step,
+which can avoid this.
+
+
+<br>
+<br>
+
+
+3. `mAP` is not good
+
+Well, there are many possible reasons making `mAP` not good enough, like overflow mentioned in the 2nd question.
+If you use method in the above, you should see `mAP` will become good.
+
+You can also try to adjust the `lr0` in `config/data/hyp-scratch-xx.yaml`, or change `--batch_size` to finetune the model.
