@@ -24,6 +24,7 @@
         - [推理](#[推理](#目录))
 - [模型说明](#[模型说明](#目录))
 - [性能](#[性能](#目录))
+- [Q&A](#[Q&A](#目录))
 
 </details>
 
@@ -492,3 +493,40 @@ bash Ascend-mindxsdk-mxmanufacture_xxx.run --install
 - `yolov5n` 需要开启 `--sync_bn`。
 
 </details>
+
+
+## [Q&A](#目录)
+
+1. cannot allocate memory in static TLS block
+```txt
+ImportError: /xxx/scikit_image.libs/libgomp-xxx.so: cannot allocate memory in static TLS block
+It seems that scikit-image has not been built correctly.
+```
+
+这个错误本身与我们的代码无关，而是和依赖 `scikit-image` 库的相关第三方库有关。一般的处理办法改变导入第三方库的顺序，可以在 `train.py` 文件的
+最开始部分添加 `import sklearn` 或者 `import skimage` 语句。
+
+如果仍旧不能解决，可以尝试网上搜索其他办法。
+
+<br>
+<br>
+
+2. 训练过程中打印的 `loss` 突然变得很大（一般是 `lobj loss` 突然变得很大），或者出现 `nan`。
+
+这个问题一般是模型在训练中，因为溢出导致 `loss` 出现 `nan`，而后在更新模型参数时，使得权重数值变得很大，导致最后计算的 `loss` 也
+变大。常出现在单类别数据集，且数据量较小的情况下。
+
+遇到这个问题，可以将 `hyp-scratch.xx.yaml` 文件中 `enable_clip_grad` 项设置为 `True`，以裁剪过大梯度。另外，在最新的代码中，
+我们也添加了溢出检测，当出现溢出时，跳过该 step 对模型权重的更新，基本能够避免这一问题的出现。
+
+
+<br>
+<br>
+
+
+3. `mAP` 结果不高。
+
+这一问题的原因有很多。上文第二点中原因经常会导致 `mAP` 较低，甚至训练过程中的 `mAP` 出现跳动。
+采用第二点中的措施之后，一般该问题能够解决。
+
+此外，还可以调节 `config/data/hyp-scratch-xx.yaml` 中的学习率 `lr0`，或者改变脚本中的 `--batch_size` 大小。
