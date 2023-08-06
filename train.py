@@ -95,14 +95,6 @@ class NetworkWithLoss(nn.Cell):
         return loss
 
 
-def save_ema(ema, ema_ckpt_path, append_dict=None):
-    params_list = []
-    for p in ema.ema_weights:
-        _param_dict = {'name': p.name[len("ema."):], 'data': Tensor(p.data.asnumpy())}
-        params_list.append(_param_dict)
-    ms.save_checkpoint(params_list, ema_ckpt_path, append_dict=append_dict)
-
-
 class CheckpointQueue:
     def __init__(self, max_ckpt_num):
         self.max_ckpt_num = max_ckpt_num
@@ -225,37 +217,6 @@ class TrainContext:
     val_data_pack: Optional[DatasetPack]
 
 
-def val(opt, train_context: TrainContext):
-    LOGGER.info("Evaluating...")
-    param_dict = {}
-    model, ema = train_context.model, train_context.ema
-    if opt.ema:
-        if ema is None:
-            LOGGER.warning("ema is None while opt.ema is set True, ema weight will not load.")
-        LOGGER.info("ema parameter update")
-        for p in ema.ema_weights:
-            name = p.name[len("ema."):]
-            param_dict[name] = p.data
-    else:
-        for p in model.get_parameters():
-            name = p.name
-            param_dict[name] = p.data
-    infer_model = train_context.infer_model
-    ms.load_param_into_net(infer_model, param_dict)
-    del param_dict
-    infer_model.set_train(False)
-    cur_epoch = train_context.cur_epoch
-    val_dataset, val_dataloader = train_context.val_data_pack.dataset, train_context.val_data_pack.dataloader
-    test_manager = EvalManager(opt)
-    val_result = test_manager.eval(infer_model, val_dataset, val_dataloader, cur_epoch)
-    infer_model.set_train(True)
-    # Return corresponding result according to config
-    if opt.metric == 'yolo':
-        return val_result.metric_stats
-    else:
-        return val_result.coco_result
-
-
 class DataManager:
     def __init__(self, opt, cfg, hyp):
         self.opt = opt
@@ -359,10 +320,7 @@ class TrainManager:
         set_seed()
         opt = self.opt
         self._modelarts_sync(opt.data_url, opt.data_dir)
-
         self.data_cfg = self.data_manager.data_cfg
-
-
         os.makedirs(self.weight_dir, exist_ok=True)
 
         # Save run settings
@@ -374,6 +332,7 @@ class TrainManager:
         resume_epoch = self.model_manager.pretrained_load(model, ema)
         model = self.model_manager.freeze_layer(model)
 
+        # Build dataset
         gs, imgsz = self.data_manager.get_img_info()
         train_epoch_size = 1 if opt.optimizer == "thor" else opt.epochs - resume_epoch
         train_dataset_pack = self.data_manager.get_dataset(train_epoch_size, mode="train")
@@ -535,12 +494,44 @@ class TrainManager:
                 return True
             return False
 
-        if opt.run_eval and is_eval_epoch():
-            coco_result = val(opt, train_context)
-            if opt.summary:
-                summary_record.add_value('scalar', 'map', ms.Tensor(coco_result.get_map()))
-                summary_record.record(cur_epoch * steps_per_epoch)
-            self.save_eval_results(coco_result, cur_epoch, train_context.ema, train_context.model)
+        if not opt.run_eval or not is_eval_epoch():
+            return
+        coco_result = self._eval(train_context)
+        if opt.summary:
+            summary_record.add_value('scalar', 'map', ms.Tensor(coco_result.get_map()))
+            summary_record.record(cur_epoch * steps_per_epoch)
+        self.save_eval_results(coco_result, cur_epoch, train_context.ema, train_context.model)
+
+    def _eval(self, train_context: TrainContext):
+        opt = self.opt
+        LOGGER.info("Evaluating...")
+        param_dict = {}
+        model, ema = train_context.model, train_context.ema
+        if opt.ema:
+            if ema is None:
+                LOGGER.warning("ema is None while opt.ema is set True, ema weight will not load.")
+            LOGGER.info("ema parameter update")
+            for p in ema.ema_weights:
+                name = p.name[len("ema."):]
+                param_dict[name] = p.data
+        else:
+            for p in model.get_parameters():
+                name = p.name
+                param_dict[name] = p.data
+        infer_model = train_context.infer_model
+        ms.load_param_into_net(infer_model, param_dict)
+        del param_dict
+        infer_model.set_train(False)
+        cur_epoch = train_context.cur_epoch
+        val_dataset, val_dataloader = train_context.val_data_pack.dataset, train_context.val_data_pack.dataloader
+        eval_manager = EvalManager(opt)
+        val_result = eval_manager.eval(infer_model, val_dataset, val_dataloader, cur_epoch)
+        infer_model.set_train(True)
+        if opt.metric == 'yolo':
+            coco_result = val_result.metric_stats
+        else:
+            coco_result = val_result.coco_result
+        return coco_result
 
     @staticmethod
     def save_ema(ema, ema_ckpt_path, append_dict=None):
