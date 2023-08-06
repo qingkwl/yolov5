@@ -20,7 +20,9 @@ import random
 import time
 from collections import deque
 from contextlib import nullcontext
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional, Any
 
 import yaml
 import numpy as np
@@ -187,14 +189,83 @@ class CheckpointQueue:
             os.remove(ckpt_to_delete)
 
 
-class TrainManager:
-    def __init__(self, hyp, opt):
-        self.hyp = hyp
+@dataclass
+class DatasetPack:
+    per_epoch_size: int
+    dataloader: Optional[Any]
+    dataset: Optional[Any]
+
+
+class DataManager:
+    def __init__(self, opt, cfg, hyp):
         self.opt = opt
+        self.cfg = cfg
+        self.hyp = hyp
+        self.data_cfg = None
+
+        self._init_data_cfg()
+
+    def _init_data_cfg(self):
+        opt = self.opt
+        with open(opt.data, "r", encoding="utf-8") as f:
+            data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
+        if opt.enable_modelarts:
+            data_dict['root'] = opt.data_dir
+        data_dict = process_dataset_cfg(data_dict)
+        nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
+        names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
+        assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
+        data_dict['names'] = names
+        data_dict['nc'] = nc
+        self.data_cfg = data_dict
+
+    def get_dataset(self, epoch_size: int, mode: str = "train"):
+        opt = self.opt
+        stride = self.cfg['stride']
+        # Image sizes
+        gs = max(int(max(stride)), 32)  # grid size (max stride)
+        imgsz, _ = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
+        is_train = mode == "train"
+        pad = 0.0 if is_train else 0.5
+        rect = opt.rect if is_train else False
+        hyp = self.hyp if is_train else None
+        cache = opt.cache_images if is_train else False
+        quad = opt.quad if is_train else None
+        rank, rank_size, num_parallel_workers = opt.rank, opt.rank_size, 12
+        image_weights = opt.image_weights if mode == "train" else False
+        if mode == "val":
+            rank = (opt.rank % 8) if opt.distributed_eval else 0
+            rank_size = min(8, opt.rank_size) if opt.distributed_eval else 1
+            num_parallel_workers = 4 if opt.rank_size > 1 else 8
+        dataloader, dataset, per_epoch_size = create_dataloader(
+            self.data_cfg[mode], imgsz, opt.batch_size, gs, opt,
+            epoch_size=epoch_size, pad=pad, rect=rect, hyp=hyp, augment=is_train, cache=cache,
+            rank=rank, rank_size=rank_size, num_parallel_workers=num_parallel_workers,
+            shuffle=is_train, drop_remainder=is_train, image_weights=image_weights, quad=quad,
+            prefix=colorstr(f"{mode}: "), model_train=is_train
+        )
+        dataset_pack = DatasetPack(
+            per_epoch_size=per_epoch_size,
+            dataset=dataset,
+            dataloader=dataloader
+        )
+        return dataset_pack
+
+
+class TrainManager:
+    def __init__(self, opt):
+        self.opt = opt
+        with open(opt.cfg, "r", encoding="utf-8") as f:
+            self.cfg = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
+        # Hyperparameters
+        with open(opt.hyp) as f:
+            self.hyp = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
 
         self.best_map = 0.
         self.data_cfg = None
         self.weight_dir = os.path.join(self.opt.save_dir, "weights")
+
+        self.data_manager = DataManager(opt, self.cfg, self.hyp)
 
     @staticmethod
     def _write_map_result(coco_result, map_str_path, names):
@@ -217,14 +288,13 @@ class TrainManager:
             else:
                 raise TypeError(f"Not supported coco_result type: {type(coco_result)}")
 
-
     def train(self):
         set_seed()
         opt = self.opt
         hyp = self.hyp
         self._modelarts_sync(opt.data_url, opt.data_dir)
 
-        self.data_cfg = self.get_data_cfg()
+        self.data_cfg = self.data_manager.data_cfg
         num_cls = self.data_cfg['nc']
 
         # Directories
@@ -252,19 +322,22 @@ class TrainManager:
 
         # Image sizes
         gs = max(int(model.stride.asnumpy().max()), 32)  # grid size (max stride)
-        nl = model.model[-1].nl  # number of detection layers (used for scaling hyp['obj'])
+
         imgsz, _ = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
         train_epoch_size = 1 if opt.optimizer == "thor" else opt.epochs - resume_epoch
-        dataloader, dataset, per_epoch_size = self.get_dataset(model, train_epoch_size, mode="train")
-        infer_model, val_dataloader, val_dataset = None, None, None
+        train_dataset_pack = self.data_manager.get_dataset(train_epoch_size, mode="train")
+        infer_model = None
+        val_dataset, val_dataloader = None, None
         if opt.save_checkpoint or opt.run_eval:
             infer_model = copy.deepcopy(model) if opt.ema else model
-            val_dataloader, val_dataset, _ = self.get_dataset(model, epoch_size=1, mode="val")
+            val_dataset_pack = self.data_manager.get_dataset(epoch_size=1, mode="val")
+            val_dataloader = val_dataset_pack.dataloader
+            val_dataset = val_dataset_pack.dataset
 
         if not opt.resume and not opt.noautoanchor:
             anchors_path = Path(opt.save_dir) / 'anchors.npy'
             with SynchronizeManager(opt.rank % 8, min(8, opt.rank_size), opt.distributed_train, opt.save_dir):
-                anchors = check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
+                anchors = check_anchors(train_dataset_pack.dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
                 if anchors is not None:
                     # Save to save_dir
                     np.save(str(anchors_path.resolve()), anchors)
@@ -278,7 +351,7 @@ class TrainManager:
                 info = f'Done ⚠️ (original anchors better than new anchors, proceeding with original anchors)'
             LOGGER.info(info)
 
-        mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
+        mlc = np.concatenate(train_dataset_pack.dataset.labels, 0)[:, 0].max()  # max label class
         assert mlc < num_cls, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g'\
                               % (mlc, num_cls, opt.data, num_cls - 1)
 
@@ -287,10 +360,11 @@ class TrainManager:
         accumulate = max(round(nbs / opt.total_batch_size), 1)  # accumulate loss before optimizing
         hyp['weight_decay'] *= opt.total_batch_size * accumulate / nbs  # scale weight_decay
         LOGGER.info(f"Scaled weight_decay = {hyp['weight_decay']}")
-        optimizer = self.get_optimizer(model, per_epoch_size, resume_epoch)
+        optimizer = self.get_optimizer(model, train_dataset_pack.per_epoch_size, resume_epoch)
 
         # Model parameters
-        model = self._configure_model_params(dataset, imgsz, model, nl)
+        nl = model.model[-1].nl  # number of detection layers (used for scaling hyp['obj'])
+        model = self._configure_model_params(train_dataset_pack.dataset, imgsz, model, nl)
 
         # Build train process function
         # amp
@@ -306,9 +380,10 @@ class TrainManager:
         ema_ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
         ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
 
-        data_size = dataloader.get_dataset_size()
+        data_size = train_dataset_pack.dataloader.get_dataset_size()
         jit = opt.ms_mode.lower() == "graph"
-        sink_process = ms.data_sink(train_step, dataloader, steps=data_size * opt.epochs, sink_size=data_size, jit=jit)
+        sink_process = ms.data_sink(train_step, train_dataset_pack.dataloader,
+                                    steps=data_size * opt.epochs, sink_size=data_size, jit=jit)
 
         summary_dir = os.path.join(opt.save_dir, opt.summary_dir, f"rank_{opt.rank}")
         steps_per_epoch = data_size
@@ -385,36 +460,6 @@ class TrainManager:
                 LOGGER.info(f"Save ckpt path: {ema_ckpt_path}")
                 self._modelarts_sync(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
 
-    def get_dataset(self, model, epoch_size, mode="train"):
-        opt = self.opt
-        gs = max(int(model.stride.asnumpy().max()), 32)  # grid size (max stride)
-        imgsz, _ = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
-
-        if mode == "train":
-            train_path = self.data_cfg["train"]
-            dataloader, dataset, per_epoch_size = create_dataloader(train_path, imgsz, opt.batch_size, gs, opt,
-                                                                    epoch_size=epoch_size,
-                                                                    hyp=self.hyp, augment=True, cache=opt.cache_images,
-                                                                    rect=opt.rect, rank_size=opt.rank_size,
-                                                                    rank=opt.rank, num_parallel_workers=12,
-                                                                    image_weights=opt.image_weights, quad=opt.quad,
-                                                                    prefix=colorstr('train: '), model_train=True)
-            return dataloader, dataset, per_epoch_size
-        # val
-        rect = False
-        test_path = self.data_cfg["val"]
-        num_parallel_workers = 4 if opt.rank_size > 1 else 8
-        val_dataloader, val_dataset, val_per_epoch_size = create_dataloader(test_path, imgsz, opt.batch_size, gs,
-                                                                            opt, epoch_size=epoch_size, pad=0.5,
-                                                                            rect=rect,
-                                                                            rank=(opt.rank % 8) if opt.distributed_eval else 0,
-                                                                            rank_size=min(8, opt.rank_size) if opt.distributed_eval else 1,
-                                                                            num_parallel_workers=num_parallel_workers,
-                                                                            shuffle=False,
-                                                                            drop_remainder=False,
-                                                                            prefix=colorstr('val: '))
-        return val_dataloader, val_dataset, val_per_epoch_size
-
     def summarize_loss(self, cur_epoch, loss, steps_per_epoch, summary_record, train_step):
         if not self.opt.summary or (cur_epoch % self.opt.summary_interval == 0):
             return
@@ -423,20 +468,6 @@ class TrainManager:
         summary_record.add_value('scalar', 'lobj', train_step.network.lobj_loss)
         summary_record.add_value('scalar', 'lcls', train_step.network.lcls_loss)
         summary_record.record(cur_epoch * steps_per_epoch)
-
-    def get_data_cfg(self):
-        opt = self.opt
-        with open(opt.data) as f:
-            data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
-        if opt.enable_modelarts:
-            data_dict['root'] = opt.data_dir
-        data_dict = process_dataset_cfg(data_dict)
-        nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
-        names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
-        assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
-        data_dict['names'] = names
-        data_dict['nc'] = nc
-        return data_dict
 
     def save_eval_results(self, coco_result, cur_epoch, ema, model):
         opt = self.opt
@@ -567,9 +598,6 @@ def main():
     opt.rank, opt.rank_size = rank, rank_size
     opt.total_batch_size = opt.batch_size * opt.rank_size
 
-    # Hyperparameters
-    with open(opt.hyp) as f:
-        hyp = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
     # Train
     profiler = None
     if opt.profiler:
@@ -577,7 +605,7 @@ def main():
 
     if not opt.evolve:
         LOGGER.info(f"OPT: {opt}")
-        train_manager = TrainManager(hyp, opt)
+        train_manager = TrainManager(opt)
         train_manager.train()
     else:
         raise NotImplementedError("Not support evolve train")
