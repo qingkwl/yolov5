@@ -55,44 +55,6 @@ def set_seed(seed=2):
     ms.set_seed(seed)
 
 
-# ----------------------------------------------------------------------------------------------------
-def detect_overflow(epoch, cur_step, grads):
-    for i, grad in enumerate(grads):
-        tmp = grad.asnumpy()
-        if np.isinf(tmp).any() or np.isnan(tmp).any():
-            print(f"grad_{i}", flush=True)
-            print(f"Epoch: {epoch}, Step: {cur_step} grad_{i} overflow, this step drop. ", flush=True)
-            return True
-    return False
-
-
-def load_checkpoint_to_yolo(model, ckpt_path, resume):
-    trainable_params = {p.name: p.asnumpy() for p in model.get_parameters()}
-    param_dict = ms.load_checkpoint(ckpt_path)
-    new_params = {}
-    ema_prefix = "ema.ema."
-    for k, v in param_dict.items():
-        if not k.startswith("model.") and not k.startswith("updates") and not k.startswith(ema_prefix):
-            continue
-
-        k = k[len(ema_prefix):] if ema_prefix in k else k
-        if k in trainable_params:
-            if v.shape != trainable_params[k].shape:
-                print(f"[WARNING] Filter checkpoint parameter: {k}", flush=True)
-                continue
-            new_params[k] = v
-        else:
-            print(f"[WARNING] Checkpoint parameter: {k} not in model", flush=True)
-
-    ms.load_param_into_net(model, new_params)
-    print(f"load ckpt from \"{ckpt_path}\" success.", flush=True)
-    resume_epoch = 0
-    if resume and 'epoch' in param_dict:
-        resume_epoch = int(param_dict['epoch'])
-        print(f"[INFO] Resume training from epoch {resume_epoch}", flush=True)
-    return resume_epoch
-
-
 @ops.constexpr
 def _get_new_size(img_shape, gs, imgsz):
     sz = random.randrange(int(imgsz * 0.5), int(imgsz * 1.5 + gs)) // gs * gs  # size
@@ -105,68 +67,32 @@ def _get_new_size(img_shape, gs, imgsz):
     return new_size
 
 
-def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
-                         sens=1.0, enable_clip_grad=True, opt=None, gs=None, imgsz=None):
-    class NetworkWithLoss(nn.Cell):
-        def __init__(self, model, compute_loss, opt):
-            super(NetworkWithLoss, self).__init__()
-            self.model = model
-            self.compute_loss = compute_loss
-            self.rank_size = opt.rank_size
-            self.lbox_loss = Parameter(Tensor(0.0, ms.float32), requires_grad=False, name="lbox_loss")
-            self.lobj_loss = Parameter(Tensor(0.0, ms.float32), requires_grad=False, name="lobj_loss")
-            self.lcls_loss = Parameter(Tensor(0.0, ms.float32), requires_grad=False, name="lcls_loss")
-            self.multi_scale = opt.multi_scale if hasattr(opt, 'multi_scale') else False
-            self.gs = gs
-            self.imgsz = imgsz
+class NetworkWithLoss(nn.Cell):
+    def __init__(self, model, compute_loss, opt, grid_size, img_size):
+        super(NetworkWithLoss, self).__init__()
+        self.model = model
+        self.compute_loss = compute_loss
+        self.rank_size = opt.rank_size
+        self.lbox_loss = Parameter(Tensor(0.0, ms.float32), requires_grad=False, name="lbox_loss")
+        self.lobj_loss = Parameter(Tensor(0.0, ms.float32), requires_grad=False, name="lobj_loss")
+        self.lcls_loss = Parameter(Tensor(0.0, ms.float32), requires_grad=False, name="lcls_loss")
+        self.multi_scale = opt.multi_scale if hasattr(opt, 'multi_scale') else False
+        self.gs = grid_size
+        self.imgsz = img_size
 
-        def construct(self, x, label, sizes=None):
-            x /= 255.0
-            if self.multi_scale and self.training:
-                x = ops.interpolate(x, sizes=_get_new_size(x.shape, self.gs, self.imgsz),
-                                    coordinate_transformation_mode="asymmetric", mode="bilinear")
-            pred = self.model(x)
-            loss, loss_items = self.compute_loss(pred, label)
-            loss_items = ops.stop_gradient(loss_items)
-            loss *= self.rank_size
-            loss = F.depend(loss, ops.assign(self.lbox_loss, loss_items[0]))
-            loss = F.depend(loss, ops.assign(self.lobj_loss, loss_items[1]))
-            loss = F.depend(loss, ops.assign(self.lcls_loss, loss_items[2]))
-            return loss
-
-    LOGGER.info(f"rank_size: {opt.rank_size}")
-    net_with_loss = NetworkWithLoss(model, compute_loss, opt)
-    train_step = build_train_network(network=net_with_loss, ema=ema, optimizer=optimizer,
-                                     level='O0', boost_level='O1', amp_loss_scaler=loss_scaler,
-                                     sens=sens, enable_clip_grad=enable_clip_grad)
-    return train_step
-
-
-def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
-    LOGGER.info("Evaluating...")
-    param_dict = {}
-    if opt.ema:
-        LOGGER.info("ema parameter update")
-        for p in ema.ema_weights:
-            name = p.name[len("ema."):]
-            param_dict[name] = p.data
-    else:
-        for p in model.get_parameters():
-            name = p.name
-            param_dict[name] = p.data
-
-    ms.load_param_into_net(infer_model, param_dict)
-    del param_dict
-    infer_model.set_train(False)
-    test_manager = EvalManager(opt)
-    val_result = test_manager.eval(infer_model, val_dataset, val_dataloader, cur_epoch)
-    infer_model.set_train(True)
-    # Return corresponding result according to config
-    if opt.metric == 'yolo':
-        return val_result.metric_stats
-    else:
-        return val_result.coco_result
-
+    def construct(self, x, label, sizes=None):
+        x /= 255.0
+        if self.multi_scale and self.training:
+            x = ops.interpolate(x, sizes=_get_new_size(x.shape, self.gs, self.imgsz),
+                                coordinate_transformation_mode="asymmetric", mode="bilinear")
+        pred = self.model(x)
+        loss, loss_items = self.compute_loss(pred, label)
+        loss_items = ops.stop_gradient(loss_items)
+        loss *= self.rank_size
+        loss = F.depend(loss, ops.assign(self.lbox_loss, loss_items[0]))
+        loss = F.depend(loss, ops.assign(self.lobj_loss, loss_items[1]))
+        loss = F.depend(loss, ops.assign(self.lcls_loss, loss_items[2]))
+        return loss
 
 
 def save_ema(ema, ema_ckpt_path, append_dict=None):
@@ -285,6 +211,51 @@ class DatasetPack:
     dataset: Optional[Any]
 
 
+@dataclass
+class TrainContext:
+    cur_epoch: int
+    steps_per_epoch: int
+    model: Model
+    ema: EMA
+    infer_model: Optional[Model]
+    optimizer: nn.Cell
+    ckpt_queue: CheckpointQueue
+    ema_ckpt_queue: CheckpointQueue
+    train_data_pack: DatasetPack
+    val_data_pack: Optional[DatasetPack]
+
+
+def val(opt, train_context: TrainContext):
+    LOGGER.info("Evaluating...")
+    param_dict = {}
+    model, ema = train_context.model, train_context.ema
+    if opt.ema:
+        if ema is None:
+            LOGGER.warning("ema is None while opt.ema is set True, ema weight will not load.")
+        LOGGER.info("ema parameter update")
+        for p in ema.ema_weights:
+            name = p.name[len("ema."):]
+            param_dict[name] = p.data
+    else:
+        for p in model.get_parameters():
+            name = p.name
+            param_dict[name] = p.data
+    infer_model = train_context.infer_model
+    ms.load_param_into_net(infer_model, param_dict)
+    del param_dict
+    infer_model.set_train(False)
+    cur_epoch = train_context.cur_epoch
+    val_dataset, val_dataloader = train_context.val_data_pack.dataset, train_context.val_data_pack.dataloader
+    test_manager = EvalManager(opt)
+    val_result = test_manager.eval(infer_model, val_dataset, val_dataloader, cur_epoch)
+    infer_model.set_train(True)
+    # Return corresponding result according to config
+    if opt.metric == 'yolo':
+        return val_result.metric_stats
+    else:
+        return val_result.coco_result
+
+
 class DataManager:
     def __init__(self, opt, cfg, hyp):
         self.opt = opt
@@ -387,14 +358,13 @@ class TrainManager:
     def train(self):
         set_seed()
         opt = self.opt
-        hyp = self.hyp
         self._modelarts_sync(opt.data_url, opt.data_dir)
 
         self.data_cfg = self.data_manager.data_cfg
-        num_cls = self.data_cfg['nc']
 
-        # Directories
+
         os.makedirs(self.weight_dir, exist_ok=True)
+
         # Save run settings
         self.dump_cfg()
         self._modelarts_sync(opt.save_dir, opt.train_url)
@@ -404,70 +374,45 @@ class TrainManager:
         resume_epoch = self.model_manager.pretrained_load(model, ema)
         model = self.model_manager.freeze_layer(model)
 
-        # Image sizes
         gs, imgsz = self.data_manager.get_img_info()
         train_epoch_size = 1 if opt.optimizer == "thor" else opt.epochs - resume_epoch
         train_dataset_pack = self.data_manager.get_dataset(train_epoch_size, mode="train")
-        infer_model = None
-        val_dataset, val_dataloader = None, None
-        if opt.save_checkpoint or opt.run_eval:
-            infer_model = copy.deepcopy(model) if opt.ema else model
-            val_dataset_pack = self.data_manager.get_dataset(epoch_size=1, mode="val")
-            val_dataloader = val_dataset_pack.dataloader
-            val_dataset = val_dataset_pack.dataset
+        infer_model, val_dataset_pack = self.prepare_for_eval(model)
 
-        if not opt.resume and not opt.noautoanchor:
-            anchors_path = Path(opt.save_dir) / 'anchors.npy'
-            with SynchronizeManager(opt.rank % 8, min(8, opt.rank_size), opt.distributed_train, opt.save_dir):
-                anchors = check_anchors(train_dataset_pack.dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
-                if anchors is not None:
-                    # Save to save_dir
-                    np.save(str(anchors_path.resolve()), anchors)
-            if anchors_path.exists():
-                # Each rank load anchors
-                anchors = np.load(str(anchors_path.resolve()))
-                model.anchors[:] = ms.Tensor(anchors.reshape(model.anchors.shape), dtype=ms.float32)
-                check_anchor_order(model)
-                info = f'Done ✅ (optional: update model *.yaml to use these anchors in the future)'
-            else:
-                info = f'Done ⚠️ (original anchors better than new anchors, proceeding with original anchors)'
-            LOGGER.info(info)
+        # Automatically fit anchor size
+        self.autoanchor(model, train_dataset_pack)
 
         mlc = np.concatenate(train_dataset_pack.dataset.labels, 0)[:, 0].max()  # max label class
+        num_cls = self.data_cfg['nc']
         assert mlc < num_cls, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g'\
                               % (mlc, num_cls, opt.data, num_cls - 1)
 
         # Optimizer
-        nbs = 64  # nominal batch size
-        accumulate = max(round(nbs / opt.total_batch_size), 1)  # accumulate loss before optimizing
-        hyp['weight_decay'] *= opt.total_batch_size * accumulate / nbs  # scale weight_decay
-        LOGGER.info(f"Scaled weight_decay = {hyp['weight_decay']}")
-        optimizer = self.get_optimizer(model, train_dataset_pack.per_epoch_size, resume_epoch)
+        optimizer = self.build_optimizer(model, train_dataset_pack, resume_epoch)
 
         # Configure Model parameters according to image info
         model = self.model_manager.configure_model_params(model, train_dataset_pack.dataset, imgsz)
+        ms.amp.auto_mixed_precision(model, amp_level=opt.ms_amp_level)
 
         # Build train process function
-        # amp
-        ms.amp.auto_mixed_precision(model, amp_level=opt.ms_amp_level)
-        compute_loss = ComputeLoss(model)  # init loss class
-        ms.amp.auto_mixed_precision(compute_loss, amp_level=opt.ms_amp_level)
-        loss_scaler = self.get_loss_scaler()
-        train_step = self.get_train_step(compute_loss, ema, model, optimizer,
-                                         gs=gs, imgsz=imgsz, loss_scaler=loss_scaler)
+        train_step_net = self.build_train_step_net(model, ema, optimizer)
         model.set_train(True)
         optimizer.set_train(True)
-        run_profiler_epoch = 2
         ema_ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
         ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
 
         data_size = train_dataset_pack.dataloader.get_dataset_size()
         jit = opt.ms_mode.lower() == "graph"
-        sink_process = ms.data_sink(train_step, train_dataset_pack.dataloader,
+        sink_process = ms.data_sink(train_step_net, train_dataset_pack.dataloader,
                                     steps=data_size * opt.epochs, sink_size=data_size, jit=jit)
 
         summary_dir = os.path.join(opt.save_dir, opt.summary_dir, f"rank_{opt.rank}")
-        steps_per_epoch = data_size
+        train_context = TrainContext(
+            cur_epoch=0, steps_per_epoch=data_size,
+            model=model, ema=ema, optimizer=optimizer, infer_model=infer_model,
+            ckpt_queue=ckpt_queue, ema_ckpt_queue=ema_ckpt_queue,
+            train_data_pack=train_dataset_pack, val_data_pack=val_dataset_pack
+        )
         with ms.SummaryRecord(summary_dir) if opt.summary else nullcontext() as summary_record:
             for cur_epoch in range(resume_epoch, opt.epochs):
                 cur_epoch = cur_epoch + 1
@@ -479,16 +424,93 @@ class TrainManager:
                             f"epoch time {step_time * 1000:.2f} ms, "
                             f"step time {step_time * 1000 / data_size:.2f} ms, "
                             f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
-                            f"lbox loss: {train_step.network.lbox_loss.asnumpy():.4f}, "
-                            f"lobj loss: {train_step.network.lobj_loss.asnumpy():.4f}, "
-                            f"lcls loss: {train_step.network.lcls_loss.asnumpy():.4f}.")
-                self.summarize_loss(cur_epoch, loss, steps_per_epoch, summary_record, train_step)
-                if opt.profiler and (cur_epoch == run_profiler_epoch):
+                            f"lbox loss: {train_step_net.network.lbox_loss.asnumpy():.4f}, "
+                            f"lobj loss: {train_step_net.network.lobj_loss.asnumpy():.4f}, "
+                            f"lcls loss: {train_step_net.network.lcls_loss.asnumpy():.4f}.")
+                train_context.cur_epoch = cur_epoch
+                self.summarize_loss(cur_epoch, loss, data_size, summary_record, train_step_net)
+                if opt.profiler and (cur_epoch == opt.run_profiler_epoch):
                     break
                 self.save_ckpt(ckpt_queue, cur_epoch, ema, ema_ckpt_queue, model)
-                self.run_eval(cur_epoch, ema, infer_model, model, steps_per_epoch, summary_record, val_dataloader,
-                              val_dataset)
+                self.run_eval(train_context, summary_record)
         return 0
+
+    def prepare_for_eval(self, model):
+        opt = self.opt
+        infer_model = None
+        val_dataset_pack = None
+        if opt.save_checkpoint or opt.run_eval:
+            infer_model = copy.deepcopy(model) if opt.ema else model
+            val_dataset_pack = self.data_manager.get_dataset(epoch_size=1, mode="val")
+        return infer_model, val_dataset_pack
+
+    def build_optimizer(self, model, train_dataset_pack, resume_epoch):
+        opt = self.opt
+        hyp = self.hyp
+        nbs = 64  # nominal batch size
+        accumulate = max(round(nbs / opt.total_batch_size), 1)  # accumulate loss before optimizing
+        hyp['weight_decay'] *= opt.total_batch_size * accumulate / nbs  # scale weight_decay
+        LOGGER.info(f"Scaled weight_decay = {hyp['weight_decay']}")
+        per_epoch_size = train_dataset_pack.per_epoch_size
+        pg0, pg1, pg2 = get_group_param(model)
+        lr_pg0, lr_pg1, lr_pg2, momentum_pg, _ = get_lr(opt, hyp, per_epoch_size, resume_epoch)
+        group_params = [
+            {'params': pg0, 'lr': lr_pg0, 'weight_decay': hyp['weight_decay']},
+            {'params': pg1, 'lr': lr_pg1, 'weight_decay': 0.0},
+            {'params': pg2, 'lr': lr_pg2, 'weight_decay': 0.0}]
+        LOGGER.info(f"optimizer loss scale is {opt.ms_optim_loss_scale}")
+        if opt.optimizer == "sgd":
+            optimizer = nn.SGD(group_params, learning_rate=hyp['lr0'], momentum=hyp['momentum'], nesterov=True,
+                               loss_scale=opt.ms_optim_loss_scale)
+        elif opt.optimizer == "momentum":
+            optimizer = YoloMomentum(group_params, learning_rate=hyp['lr0'], momentum=momentum_pg, use_nesterov=True,
+                                     loss_scale=opt.ms_optim_loss_scale)
+        elif opt.optimizer == "adam":
+            optimizer = nn.Adam(group_params, learning_rate=hyp['lr0'], beta1=hyp['momentum'], beta2=0.999,
+                                loss_scale=opt.ms_optim_loss_scale)
+        else:
+            raise NotImplementedError
+        return optimizer
+
+    def build_train_step_net(self, model, ema, optimizer):
+        opt = self.opt
+        gs, imgsz = self.data_manager.get_img_info()
+        compute_loss = ComputeLoss(model)  # init loss class
+        ms.amp.auto_mixed_precision(compute_loss, amp_level=opt.ms_amp_level)
+        loss_scaler = self.get_loss_scaler()
+        sens = 1.0
+        if self.opt.ms_strategy == "StaticShape":
+            LOGGER.info(f"rank_size: {opt.rank_size}")
+            net_with_loss = NetworkWithLoss(model, compute_loss, opt, gs, imgsz)
+            train_step = build_train_network(network=net_with_loss, ema=ema, optimizer=optimizer,
+                                             level='O0', boost_level='O1', amp_loss_scaler=loss_scaler,
+                                             sens=sens, enable_clip_grad=self.hyp["enable_clip_grad"])
+        else:
+            raise NotImplementedError("Only support StaticShape ms_strategy")
+        return train_step
+
+    def autoanchor(self, model, train_dataset_pack):
+        opt = self.opt
+        hyp = self.hyp
+
+        if opt.resume or opt.noautoanchor:
+            return
+        _, imgsz = self.data_manager.get_img_info()
+        anchors_path = Path(opt.save_dir) / 'anchors.npy'
+        with SynchronizeManager(opt.rank % 8, min(8, opt.rank_size), opt.distributed_train, opt.save_dir):
+            anchors = check_anchors(train_dataset_pack.dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
+            if anchors is not None:
+                # Save to save_dir
+                np.save(str(anchors_path.resolve()), anchors)
+        if anchors_path.exists():
+            # Each rank load anchors
+            anchors = np.load(str(anchors_path.resolve()))
+            model.anchors[:] = ms.Tensor(anchors.reshape(model.anchors.shape), dtype=ms.float32)
+            check_anchor_order(model)
+            info = f'Done ✅ (optional: update model *.yaml to use these anchors in the future)'
+        else:
+            info = f'Done ⚠️ (original anchors better than new anchors, proceeding with original anchors)'
+        LOGGER.info(info)
 
     def dump_cfg(self):
         if self.opt.rank % 8 != 0:
@@ -501,10 +523,10 @@ class TrainManager:
         with os.fdopen(os.open(os.path.join(save_dir, "opt.yaml"), WRITE_FLAGS, FILE_MODE), 'w') as f:
             yaml.dump(vars(self.opt), f, sort_keys=False)
 
-    def run_eval(self, cur_epoch, ema, infer_model, model, steps_per_epoch, summary_record, val_dataloader,
-                 val_dataset):
+    def run_eval(self, train_context: TrainContext, summary_record):
         opt = self.opt
-
+        cur_epoch = train_context.cur_epoch
+        steps_per_epoch = train_context.steps_per_epoch
         # Evaluation
         def is_eval_epoch():
             if cur_epoch == opt.eval_start_epoch:
@@ -514,11 +536,19 @@ class TrainManager:
             return False
 
         if opt.run_eval and is_eval_epoch():
-            coco_result = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
+            coco_result = val(opt, train_context)
             if opt.summary:
                 summary_record.add_value('scalar', 'map', ms.Tensor(coco_result.get_map()))
                 summary_record.record(cur_epoch * steps_per_epoch)
-            self.save_eval_results(coco_result, cur_epoch, ema, model)
+            self.save_eval_results(coco_result, cur_epoch, train_context.ema, train_context.model)
+
+    @staticmethod
+    def save_ema(ema, ema_ckpt_path, append_dict=None):
+        params_list = []
+        for p in ema.ema_weights:
+            _param_dict = {'name': p.name[len("ema."):], 'data': Tensor(p.data.asnumpy())}
+            params_list.append(_param_dict)
+        ms.save_checkpoint(params_list, ema_ckpt_path, append_dict=append_dict)
 
     def save_ckpt(self, ckpt_queue, cur_epoch, ema, ema_ckpt_queue, model):
         opt = self.opt
@@ -526,20 +556,26 @@ class TrainManager:
         def is_save_epoch():
             return (cur_epoch >= opt.start_save_epoch) and (cur_epoch % opt.save_interval == 0)
 
-        if opt.save_checkpoint and (opt.rank % 8 == 0) and is_save_epoch():
-            # Save Checkpoint
-            model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
-            ckpt_path = os.path.join(self.weight_dir, f"{model_name}_{cur_epoch}.ckpt")
-            ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
-            ckpt_queue.append(ckpt_path)
-            self._modelarts_sync(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
-            if ema:
-                ema_ckpt_path = os.path.join(self.weight_dir, f"EMA_{model_name}_{cur_epoch}.ckpt")
-                append_dict = {"updates": ema.updates, "epoch": cur_epoch}
-                save_ema(ema, ema_ckpt_path, append_dict)
-                ema_ckpt_queue.append(ema_ckpt_path)
-                LOGGER.info(f"Save ckpt path: {ema_ckpt_path}")
-                self._modelarts_sync(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
+        def is_master_node():
+            return opt.rank % 8 == 0
+
+        if not opt.save_checkpoint or not is_master_node() or not is_save_epoch():
+            return
+
+        # Save Checkpoint
+        model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
+        ckpt_path = os.path.join(self.weight_dir, f"{model_name}_{cur_epoch}.ckpt")
+        ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
+        ckpt_queue.append(ckpt_path)
+        self._modelarts_sync(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
+        if ema is None:
+            return
+        ema_ckpt_path = os.path.join(self.weight_dir, f"EMA_{model_name}_{cur_epoch}.ckpt")
+        append_dict = {"updates": ema.updates, "epoch": cur_epoch}
+        self.save_ema(ema, ema_ckpt_path, append_dict)
+        ema_ckpt_queue.append(ema_ckpt_path)
+        LOGGER.info(f"Save ckpt path: {ema_ckpt_path}")
+        self._modelarts_sync(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
 
     def summarize_loss(self, cur_epoch, loss, steps_per_epoch, summary_record, train_step):
         if not self.opt.summary or (cur_epoch % self.opt.summary_interval == 0):
@@ -569,19 +605,9 @@ class TrainManager:
             if ema:
                 ema_ckpt_path = os.path.join(self.weight_dir, f"EMA_{model_name}_best.ckpt")
                 append_dict = {"updates": ema.updates, "epoch": cur_epoch}
-                save_ema(ema, ema_ckpt_path, append_dict)
+                self.save_ema(ema, ema_ckpt_path, append_dict)
                 self._modelarts_sync(ema_ckpt_path,
                                      opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
-
-    def get_train_step(self, compute_loss, ema, model, optimizer, gs, imgsz, loss_scaler):
-        if self.opt.ms_strategy == "StaticShape":
-            train_step = create_train_network(model, compute_loss, ema, optimizer,
-                                              loss_scaler=loss_scaler, sens=self.opt.ms_grad_sens, opt=self.opt,
-                                              enable_clip_grad=self.hyp["enable_clip_grad"],
-                                              gs=gs, imgsz=imgsz)
-        else:
-            raise NotImplementedError
-        return train_step
 
     def get_loss_scaler(self):
         opt = self.opt
@@ -594,29 +620,6 @@ class TrainManager:
         else:
             loss_scaler = None
         return loss_scaler
-
-    def get_optimizer(self, model, per_epoch_size, resume_epoch):
-        opt = self.opt
-        hyp = self.hyp
-        pg0, pg1, pg2 = get_group_param(model)
-        lr_pg0, lr_pg1, lr_pg2, momentum_pg, _ = get_lr(opt, hyp, per_epoch_size, resume_epoch)
-        group_params = [
-            {'params': pg0, 'lr': lr_pg0, 'weight_decay': hyp['weight_decay']},
-            {'params': pg1, 'lr': lr_pg1, 'weight_decay': 0.0},
-            {'params': pg2, 'lr': lr_pg2, 'weight_decay': 0.0}]
-        LOGGER.info(f"optimizer loss scale is {opt.ms_optim_loss_scale}")
-        if opt.optimizer == "sgd":
-            optimizer = nn.SGD(group_params, learning_rate=hyp['lr0'], momentum=hyp['momentum'], nesterov=True,
-                               loss_scale=opt.ms_optim_loss_scale)
-        elif opt.optimizer == "momentum":
-            optimizer = YoloMomentum(group_params, learning_rate=hyp['lr0'], momentum=momentum_pg, use_nesterov=True,
-                                     loss_scale=opt.ms_optim_loss_scale)
-        elif opt.optimizer == "adam":
-            optimizer = nn.Adam(group_params, learning_rate=hyp['lr0'], beta1=hyp['momentum'], beta2=0.999,
-                                loss_scale=opt.ms_optim_loss_scale)
-        else:
-            raise NotImplementedError
-        return optimizer
 
     def _modelarts_sync(self, src_dir, dst_dir):
         if not self.opt.enable_modelarts:

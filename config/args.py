@@ -146,6 +146,7 @@ def get_args_train():
     parser.add_argument('--data_url', type=str, default='', help='ModelArts: obs path to dataset folder')
     parser.add_argument('--train_url', type=str, default='', help='ModelArts: obs path to dataset folder')
     parser.add_argument('--data_dir', type=str, default='/cache/data/', help='ModelArts: obs path to dataset folder')
+    parser.add_argument('--run_profiler_epoch', type=int, default=2, help='Epoch num when run profiler.')
     return parser
 
 
