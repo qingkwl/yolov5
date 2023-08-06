@@ -189,6 +189,95 @@ class CheckpointQueue:
             os.remove(ckpt_to_delete)
 
 
+class ModelManager:
+    def __init__(self, opt, cfg, hyp, data_cfg):
+        self.opt = opt
+        self.cfg = cfg
+        self.hyp = hyp
+        self.data_cfg = data_cfg
+
+    def create_model(self):
+        opt, hyp = self.opt, self.hyp
+        num_cls = self.data_cfg['nc']
+        sync_bn = opt.sync_bn and context.get_context("device_target") == "Ascend" and opt.rank_size > 1
+        # Create Model
+        model = Model(opt.cfg, ch=3, nc=num_cls, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt, hyp=hyp)
+        model.to_float(ms.float16)
+        ema = EMA(model) if opt.ema else None
+
+        return model, ema
+
+    def freeze_layer(self, model):
+        freeze = self.opt.freeze
+        # parameter names to freeze (full or partial)
+        freeze = freeze if len(freeze) > 1 else range(freeze[0])
+        freeze = [f'model.{x}.' for x in freeze]
+        for n, p in model.parameters_and_names():
+            if any(x in n for x in freeze):
+                LOGGER.info(f'freezing {n}')
+                p.requires_grad = False
+        return model
+
+    def load_checkpoint_to_yolo(self, model, ckpt_path=None, resume=None):
+        if ckpt_path is None:
+            ckpt_path = self.opt.weights
+        if resume is None:
+            resume = self.opt.resume
+        trainable_params = {p.name: p.asnumpy() for p in model.get_parameters()}
+        param_dict = ms.load_checkpoint(ckpt_path)
+        new_params = {}
+        ema_prefix = "ema.ema."
+        for k, v in param_dict.items():
+            if not k.startswith("model.") and not k.startswith("updates") and not k.startswith(ema_prefix):
+                continue
+
+            k = k[len(ema_prefix):] if ema_prefix in k else k
+            if k in trainable_params:
+                if v.shape != trainable_params[k].shape:
+                    print(f"[WARNING] Filter checkpoint parameter: {k}", flush=True)
+                    continue
+                new_params[k] = v
+            else:
+                print(f"[WARNING] Checkpoint parameter: {k} not in model", flush=True)
+
+        ms.load_param_into_net(model, new_params)
+        print(f"load ckpt from \"{ckpt_path}\" success.", flush=True)
+        resume_epoch = 0
+        if resume and 'epoch' in param_dict:
+            resume_epoch = int(param_dict['epoch'])
+            print(f"[INFO] Resume training from epoch {resume_epoch}", flush=True)
+        return resume_epoch
+
+    def pretrained_load(self, model, ema):
+        opt = self.opt
+        pretrained = self.opt.weights.endswith('.ckpt')
+        if not pretrained:
+            LOGGER.warning("pretrained option is set to False, not load pretrained weight.")
+            return 0
+        resume_epoch = self.load_checkpoint_to_yolo(model, opt.weights, opt.resume)
+        if ema is not None:
+            ema.clone_from_model()
+            LOGGER.warning("ema_weight not exist, default pretrain weight is currently used.")
+        return resume_epoch
+
+    def configure_model_params(self, model, dataset, imgsz):
+        hyp = self.hyp
+        opt = self.opt
+        nl = model.model[-1].nl  # number of detection layers (used for scaling hyp['obj'])
+        num_cls = self.data_cfg['nc']
+        cls_names = self.data_cfg['names']
+        hyp['box'] *= 3. / nl  # scale to layers
+        hyp['cls'] *= num_cls / 80. * 3. / nl  # scale to classes and layers
+        hyp['obj'] *= (imgsz / 640) ** 2 * 3. / nl  # scale to image size and layers
+        hyp['label_smoothing'] = opt.label_smoothing
+        model.nc = num_cls  # attach number of classes to model
+        model.hyp = hyp  # attach hyperparameters to model
+        model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
+        model.class_weights = Tensor(labels_to_class_weights(dataset.labels, num_cls) * num_cls)  # attach class weights
+        model.names = cls_names
+        return model
+
+
 @dataclass
 class DatasetPack:
     per_epoch_size: int
@@ -223,8 +312,7 @@ class DataManager:
         opt = self.opt
         stride = self.cfg['stride']
         # Image sizes
-        gs = max(int(max(stride)), 32)  # grid size (max stride)
-        imgsz, _ = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
+        gs, imgsz = self.get_img_info()
         is_train = mode == "train"
         pad = 0.0 if is_train else 0.5
         rect = opt.rect if is_train else False
@@ -251,6 +339,13 @@ class DataManager:
         )
         return dataset_pack
 
+    def get_img_info(self):
+        stride = self.cfg['stride']
+        # Image sizes
+        gs = max(int(max(stride)), 32)  # grid size (max stride)
+        imgsz, _ = [check_img_size(x, gs) for x in self.opt.img_size]  # verify imgsz are gs-multiples
+        return gs, imgsz
+
 
 class TrainManager:
     def __init__(self, opt):
@@ -266,6 +361,7 @@ class TrainManager:
         self.weight_dir = os.path.join(self.opt.save_dir, "weights")
 
         self.data_manager = DataManager(opt, self.cfg, self.hyp)
+        self.model_manager = ModelManager(opt, self.cfg, self.hyp, self.data_manager.data_cfg)
 
     @staticmethod
     def _write_map_result(coco_result, map_str_path, names):
@@ -303,27 +399,13 @@ class TrainManager:
         self.dump_cfg()
         self._modelarts_sync(opt.save_dir, opt.train_url)
 
-        # Model
-        sync_bn = opt.sync_bn and context.get_context("device_target") == "Ascend" and opt.rank_size > 1
         # Create Model
-        model = Model(opt.cfg, ch=3, nc=num_cls, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt, hyp=hyp)
-        model.to_float(ms.float16)
-        ema = EMA(model) if opt.ema else None
-
-        pretrained = opt.weights.endswith('.ckpt')
-        resume_epoch = 0
-        if pretrained:
-            resume_epoch = load_checkpoint_to_yolo(model, opt.weights, opt.resume)
-            ema.clone_from_model()
-            LOGGER.warning("ema_weight not exist, default pretrain weight is currently used.")
-
-        # Freeze
-        model = self.freeze_layer(model)
+        model, ema = self.model_manager.create_model()
+        resume_epoch = self.model_manager.pretrained_load(model, ema)
+        model = self.model_manager.freeze_layer(model)
 
         # Image sizes
-        gs = max(int(model.stride.asnumpy().max()), 32)  # grid size (max stride)
-
-        imgsz, _ = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
+        gs, imgsz = self.data_manager.get_img_info()
         train_epoch_size = 1 if opt.optimizer == "thor" else opt.epochs - resume_epoch
         train_dataset_pack = self.data_manager.get_dataset(train_epoch_size, mode="train")
         infer_model = None
@@ -362,9 +444,8 @@ class TrainManager:
         LOGGER.info(f"Scaled weight_decay = {hyp['weight_decay']}")
         optimizer = self.get_optimizer(model, train_dataset_pack.per_epoch_size, resume_epoch)
 
-        # Model parameters
-        nl = model.model[-1].nl  # number of detection layers (used for scaling hyp['obj'])
-        model = self._configure_model_params(train_dataset_pack.dataset, imgsz, model, nl)
+        # Configure Model parameters according to image info
+        model = self.model_manager.configure_model_params(model, train_dataset_pack.dataset, imgsz)
 
         # Build train process function
         # amp
@@ -537,39 +618,12 @@ class TrainManager:
             raise NotImplementedError
         return optimizer
 
-    def freeze_layer(self, model):
-        freeze = self.opt.freeze
-        # parameter names to freeze (full or partial)
-        freeze = freeze if len(freeze) > 1 else range(freeze[0])
-        freeze = [f'model.{x}.' for x in freeze]
-        for n, p in model.parameters_and_names():
-            if any(x in n for x in freeze):
-                LOGGER.info(f'freezing {n}')
-                p.requires_grad = False
-        return model
-
     def _modelarts_sync(self, src_dir, dst_dir):
         if not self.opt.enable_modelarts:
             return
         from src.modelarts import sync_data
         os.makedirs(dst_dir, exist_ok=True)
         sync_data(src_dir, dst_dir)
-
-    def _configure_model_params(self, dataset, imgsz, model, nl):
-        hyp = self.hyp
-        opt = self.opt
-        num_cls = self.data_cfg['nc']
-        cls_names = self.data_cfg['names']
-        hyp['box'] *= 3. / nl  # scale to layers
-        hyp['cls'] *= num_cls / 80. * 3. / nl  # scale to classes and layers
-        hyp['obj'] *= (imgsz / 640) ** 2 * 3. / nl  # scale to image size and layers
-        hyp['label_smoothing'] = opt.label_smoothing
-        model.nc = num_cls  # attach number of classes to model
-        model.hyp = hyp  # attach hyperparameters to model
-        model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
-        model.class_weights = Tensor(labels_to_class_weights(dataset.labels, num_cls) * num_cls)  # attach class weights
-        model.names = cls_names
-        return model
 
 
 def main():
