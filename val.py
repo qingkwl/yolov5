@@ -234,14 +234,15 @@ class DataManager:
         self.opt = opt
         self.cfg = cfg
         self.hyp = hyp
-        self.is_coco = False
         self.data_cfg = None
 
         self._init_data_cfg()
+        start_idx = 1
+        is_coco = opt.data.endswith('coco.yaml')
+        self.cls_map = coco80_to_coco91_class() if is_coco else list(range(start_idx, 1000 + start_idx))
 
     def _init_data_cfg(self):
         opt = self.opt
-        self.is_coco = opt.data.endswith('coco.yaml')
         with open(opt.data, "r", encoding="utf-8") as f:
             data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
         if opt.enable_modelarts:
@@ -296,64 +297,8 @@ class DataManager:
         imgsz = check_img_size(imgsz, gs)
         return gs, imgsz
 
-@dataclass
-class ImgInfo:
-    img: np.ndarray
-    targets: np.ndarray
-    out: list[np.ndarray]
-    paths: np.ndarray
-    shapes: np.ndarray
-
-    def unpack(self):
-        return self.img, self.targets, self.out, self.paths, self.shapes
-
-
-class EvalManager:
-    def __init__(self, opt, compute_loss=None):
-        self.opt = opt
-
-        with open(opt.cfg, "r", encoding="utf-8") as f:
-            self.cfg = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
-        # Hyperparameters
-        with open(opt.hyp, "r", encoding="utf-8") as f:
-            self.hyp = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
-        self.data_manager = DataManager(opt, self.cfg, self.hyp)
-        self.dataset_cfg = self.data_manager.data_cfg
-        self.model_manager = ModelManager(opt, self.cfg, self.hyp, self.dataset_cfg)
-
-        self.is_coco = False
-        self.dataset_cfg: dict
-        self.hyper_params = None
-        self.confusion_matrix = ConfusionMatrix(nc=self.dataset_cfg['nc'])
-        self.project_dir: str = ''
-        self.save_dir: str = './'
-        self.model = None
-        self.training = False
-        self.img_size = self.data_manager.get_img_info()[1]
-        self.batch_size = self.opt.batch_size
-        self.cls_map: list[int] = []
-        self.compute_loss = compute_loss
-        self.synchronize = Synchronize(self.opt.rank_size)
-        self.reduce_sum = AllReduce()
-
-    @staticmethod
-    def save_json(pred_json, save_path):
-        with os.fdopen(os.open(save_path, WRITE_FLAGS, FILE_MODE), 'w') as file:
-            json.dump(pred_json, file)
-
-    def save_map(self, coco_result):
-        dataset_cfg = self.dataset_cfg
-        s = f"\n{len(glob.glob(os.path.join(self.save_dir, 'labels/*.txt')))} labels saved to " \
-            f"{os.path.join(self.save_dir, 'labels')}" if self.opt.save_txt else ''
-        LOGGER.info(f"Results saved to {self.save_dir}, {s}")
-        with os.fdopen(os.open("class_map.txt", WRITE_FLAGS, FILE_MODE), "w") as file:
-            file.write(f"COCO map:\n{coco_result.stats_str}\n")
-            if coco_result.category_stats_strs:
-                for idx, category_str in enumerate(coco_result.category_stats_strs):
-                    file.write(f"\nclass {dataset_cfg['names'][idx]}:\n{category_str}\n")
-
     def get_val_anno(self):
-        dataset_cfg = self.dataset_cfg
+        dataset_cfg = self.data_cfg
         opt = self.opt
         data_dir = Path(dataset_cfg["val"]).parent
         anno_json = os.path.join(data_dir, "annotations/instances_val2017.json")
@@ -366,12 +311,107 @@ class EvalManager:
             transformer()
         return anno_json
 
+
+@dataclass
+class ImgInfo:
+    img: np.ndarray
+    targets: np.ndarray
+    out: list[np.ndarray]
+    paths: np.ndarray
+    shapes: np.ndarray
+
+    def unpack(self):
+        return self.img, self.targets, self.out, self.paths, self.shapes
+
+
+class IOProcessor:
+    def __init__(self, opt, dataset_cfg):
+        self.opt = opt
+        self.dataset_cfg = dataset_cfg
+        self.project_dir: str = ''
+        self.save_dir: str = './'
+
+    def create_dirs(self, cur_epoch=None):
+        if cur_epoch is not None:
+            project_dir = os.path.join(self.opt.project, f"epoch_{cur_epoch}")
+        else:
+            project_dir = self.opt.project
+        save_dir = os.path.join(project_dir, f"save_dir_{self.opt.rank}")
+        save_dir = increment_path(save_dir, exist_ok=self.opt.exist_ok)
+        os.makedirs(os.path.join(save_dir, f"labels_{self.opt.rank}"), exist_ok=self.opt.exist_ok)
+        self.project_dir = project_dir
+        self.save_dir = save_dir
+
+    def write_txt(self, pred, shape, path):
+        if not self.opt.save_txt:
+            return
+        # Save result to txt
+        path = Path(path)
+        file_path = os.path.join(self.save_dir, 'labels', f'{path.stem}.txt')
+        gn = np.array(shape)[[1, 0, 1, 0]]  # normalization gain whwh
+        for *xyxy, conf, cls in pred.tolist():
+            xywh = (xyxy2xywh(np.array(xyxy).reshape(1, 4)) / gn).reshape(-1).tolist()  # normalized xywh
+            line = (cls, *xywh, conf) if self.opt.save_conf else (cls, *xywh)  # label format
+            with os.fdopen(os.open(file_path, WRITE_FLAGS, FILE_MODE), 'a') as f:
+                f.write(('%g ' * len(line)).rstrip() % line + '\n')
+
+    def write_json_list(self, pred, pred_json, path, cls_map: list[int]):
+        if not self.opt.save_json:
+            return
+        # Save one JSON result
+        # >> example:
+        # >> {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
+        path = Path(path)
+        image_id = int(path.stem) if path.stem.isnumeric() else path.stem
+        box = xyxy2xywh(pred[:, :4])  # xywh
+        box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
+        for p, b in zip(pred.tolist(), box.tolist()):
+            pred_json.append({
+                'image_id': image_id,
+                'category_id': cls_map[int(p[5])],
+                'bbox': [round(x, 3) for x in b],
+                'score': round(p[4], 5)})
+
+    @staticmethod
+    def save_json(pred_json, save_path):
+        with os.fdopen(os.open(save_path, WRITE_FLAGS, FILE_MODE), 'w') as file:
+            json.dump(pred_json, file)
+
+    def save_eval_results(self, metric_stats: MetricStatistics):
+        opt = self.opt
+        ckpt_name = Path(opt.weights).stem if opt.weights is not None else ''  # weights
+        pred_json_path = os.path.join(self.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
+        LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
+        self.save_json(metric_stats.pred_json, pred_json_path)
+
+    def _merge_pred_json(self, prefix=''):
+        LOGGER.info("Merge detection results...")
+        merged_json = os.path.join(self.project_dir, f"{prefix}_predictions_merged.json")
+        merged_result = []
+        # Waiting
+        while True:
+            json_files = list(Path(self.project_dir).rglob("*.json"))
+            if len(json_files) != min(8, self.opt.rank_size):
+                time.sleep(1)
+                LOGGER.info("Waiting for json file...")
+            else:
+                break
+        for json_file in json_files:
+            LOGGER.info(f"Merge {json_file.resolve()}")
+            with open(json_file, "r") as file_handler:
+                merged_result.extend(json.load(file_handler))
+        with os.fdopen(os.open(merged_json, WRITE_FLAGS, FILE_MODE), "w") as file_handler:
+            json.dump(merged_result, file_handler)
+        LOGGER.info(f"Merged results saved in {merged_json}.")
+        return merged_json, merged_result
+
     def eval_coco(self, anno_json, pred_json, dataset=None):
         LOGGER.info("Start evaluating mAP...")
         anno = COCO(anno_json)  # init annotations api
         pred = anno.loadRes(pred_json)  # init predictions api
         eval_result = COCOeval(anno, pred, 'bbox')
-        if self.is_coco and dataset is not None:
+        is_coco = self.opt.data.endswith('coco.yaml')
+        if is_coco and dataset is not None:
             eval_result.params.imgIds = [int(Path(x).stem) for x in dataset.img_files]  # image IDs to evaluate
         eval_result.evaluate()
         eval_result.accumulate()
@@ -397,6 +437,74 @@ class EvalManager:
                               score_threshold=None,
                               recommend_threshold=self.opt.recommend_threshold)
 
+    def join_coco_result(self, metric_stats, anno_json):
+        opt = self.opt
+        ckpt_name = Path(opt.weights).stem if opt.weights is not None else ''  # weights
+        pred_json_path = os.path.join(self.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
+        LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
+        with SynchronizeManager(opt.rank % 8, min(8, opt.rank_size), opt.distributed_eval, self.project_dir):
+            result = COCOResult()
+            if opt.rank % 8 == 0:
+                pred_json = metric_stats.pred_json
+                if opt.distributed_eval:
+                    pred_json_path, pred_json = self._merge_pred_json(prefix=ckpt_name)
+                if opt.result_view or opt.recommend_threshold:
+                    try:
+                        self.visualize_coco(anno_json, pred_json_path)
+                    except Exception:
+                        LOGGER.exception("Failed when visualize evaluation result.")
+                try:
+                    result = self.eval_coco(anno_json, pred_json)
+                    LOGGER.info(f"\nCOCO mAP:\n{result.stats_str}")
+                except Exception:
+                    LOGGER.exception("Exception when running pycocotools")
+            coco_result = result
+        return coco_result
+
+
+class EvalManager:
+    def __init__(self, opt, compute_loss=None):
+        self.opt = opt
+
+        with open(opt.cfg, "r", encoding="utf-8") as f:
+            self.cfg = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
+        # Hyperparameters
+        with open(opt.hyp, "r", encoding="utf-8") as f:
+            self.hyp = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
+        self.data_manager = DataManager(opt, self.cfg, self.hyp)
+        self.dataset_cfg = self.data_manager.data_cfg
+        self.model_manager = ModelManager(opt, self.cfg, self.hyp, self.dataset_cfg)
+        self.io_processor = IOProcessor(opt, self.dataset_cfg)
+
+        self.dataset_cfg: dict
+        self.hyper_params = None
+        self.confusion_matrix = ConfusionMatrix(nc=self.dataset_cfg['nc'])
+        self.project_dir: str = ''
+        self.save_dir: str = './'
+        self.model = None
+        self.training = False
+        self.img_size = self.data_manager.get_img_info()[1]
+        self.batch_size = self.opt.batch_size
+        self.compute_loss = compute_loss
+        self.synchronize = Synchronize(self.opt.rank_size)
+        self.reduce_sum = AllReduce()
+
+    @staticmethod
+    def save_json(pred_json, save_path):
+        with os.fdopen(os.open(save_path, WRITE_FLAGS, FILE_MODE), 'w') as file:
+            json.dump(pred_json, file)
+
+    def save_map(self, coco_result):
+        dataset_cfg = self.dataset_cfg
+        s = f"\n{len(glob.glob(os.path.join(self.save_dir, 'labels/*.txt')))} labels saved to " \
+            f"{os.path.join(self.save_dir, 'labels')}" if self.opt.save_txt else ''
+        LOGGER.info(f"Results saved to {self.save_dir}, {s}")
+        with os.fdopen(os.open("class_map.txt", WRITE_FLAGS, FILE_MODE), "w") as file:
+            file.write(f"COCO map:\n{coco_result.stats_str}\n")
+            if coco_result.category_stats_strs:
+                for idx, category_str in enumerate(coco_result.category_stats_strs):
+                    file.write(f"\nclass {dataset_cfg['names'][idx]}:\n{category_str}\n")
+
     def print_stats(self, metric_stats, time_stats):
         total_time_fmt_str = 'Total time: {:.1f}/{:.1f}/{:.1f}/{:.1f} s ' \
                              'inference/NMS/Metric/total {:g}x{:g} image at batch-size {:g}'
@@ -408,17 +516,6 @@ class EvalManager:
         LOGGER.info(speed_fmt_str.format(*speed))
         LOGGER.info(total_time_fmt_str.format(*total_time))
         return speed
-
-    def _create_dirs(self, cur_epoch=None):
-        if cur_epoch is not None:
-            project_dir = os.path.join(self.opt.project, f"epoch_{cur_epoch}")
-        else:
-            project_dir = self.opt.project
-        save_dir = os.path.join(project_dir, f"save_dir_{self.opt.rank}")
-        save_dir = increment_path(save_dir, exist_ok=self.opt.exist_ok)
-        os.makedirs(os.path.join(save_dir, f"labels_{self.opt.rank}"), exist_ok=self.opt.exist_ok)
-        self.project_dir = project_dir
-        self.save_dir = save_dir
 
     def _config_dataset(self, eval_context: EvalContext):
         dataset_pack = eval_context.dataset_pack
@@ -441,7 +538,7 @@ class EvalManager:
     def _prepare_for_eval(self, eval_context: EvalContext):
         if eval_context is None:
             eval_context = EvalContext(None, None, None)
-        self._create_dirs(eval_context.cur_epoch)
+        self.io_processor.create_dirs(eval_context.cur_epoch)
 
         # Config model
         model = eval_context.model
@@ -465,8 +562,6 @@ class EvalManager:
         dataset_cfg = self.dataset_cfg
         model = eval_context.model
         dataset_cfg['names'] = dict(enumerate(model.names if hasattr(model, 'names') else model.module.names))
-        start_idx = 1
-        self.cls_map = coco80_to_coco91_class() if self.is_coco else list(range(start_idx, 1000 + start_idx))
 
         # Test
         metric_stats, time_stats = self._eval(eval_context)
@@ -483,7 +578,9 @@ class EvalManager:
         # Save JSON
         if opt.save_json and not empty(metric_stats.pred_json):
             try:
-                coco_result = self._save_eval_result(metric_stats)
+                # coco_result = self._save_eval_result(metric_stats)
+                self.io_processor.save_eval_results(metric_stats)
+                coco_result = self.io_processor.join_coco_result(metric_stats, self.data_manager.get_val_anno())
             except Exception:
                 LOGGER.exception("Error when evaluating COCO mAP")
 
@@ -499,32 +596,6 @@ class EvalManager:
         val_result = namedtuple('ValResult', ['metric_stats', 'maps', 'speed', 'coco_result'])
         return val_result(metric_stats, maps, speed, coco_result)
 
-    def _save_eval_result(self, metric_stats):
-        opt = self.opt
-        anno_json = self.get_val_anno()
-        ckpt_name = Path(opt.weights).stem if opt.weights is not None else ''  # weights
-        pred_json_path = os.path.join(self.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
-        LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
-        self.save_json(metric_stats.pred_json, pred_json_path)
-        with SynchronizeManager(opt.rank % 8, min(8, opt.rank_size), opt.distributed_eval, self.project_dir):
-            result = COCOResult()
-            if opt.rank % 8 == 0:
-                pred_json = metric_stats.pred_json
-                if opt.distributed_eval:
-                    pred_json_path, pred_json = self._merge_pred_json(prefix=ckpt_name)
-                if opt.result_view or opt.recommend_threshold:
-                    try:
-                        self.visualize_coco(anno_json, pred_json_path)
-                    except Exception:
-                        LOGGER.exception("Failed when visualize evaluation result.")
-                try:
-                    result = self.eval_coco(anno_json, pred_json)
-                    LOGGER.info(f"\nCOCO mAP:\n{result.stats_str}")
-                except Exception:
-                    LOGGER.exception("Exception when running pycocotools")
-            coco_result = result
-        return coco_result
-
     def _plot_confusion_matrix(self):
         dataset_cfg = self.dataset_cfg
         opt = self.opt
@@ -534,27 +605,6 @@ class EvalManager:
         self.confusion_matrix.matrix = matrix
         if opt.rank % 8 == 0:
             self.confusion_matrix.plot(save_dir=self.save_dir, names=list(dataset_cfg['names'].values()))
-
-    def _merge_pred_json(self, prefix=''):
-        LOGGER.info("Merge detection results...")
-        merged_json = os.path.join(self.project_dir, f"{prefix}_predictions_merged.json")
-        merged_result = []
-        # Waiting
-        while True:
-            json_files = list(Path(self.project_dir).rglob("*.json"))
-            if len(json_files) != min(8, self.opt.rank_size):
-                time.sleep(1)
-                LOGGER.info("Waiting for json file...")
-            else:
-                break
-        for json_file in json_files:
-            LOGGER.info(f"Merge {json_file.resolve()}")
-            with open(json_file, "r") as file_handler:
-                merged_result.extend(json.load(file_handler))
-        with os.fdopen(os.open(merged_json, WRITE_FLAGS, FILE_MODE), "w") as file_handler:
-            json.dump(merged_result, file_handler)
-        LOGGER.info(f"Merged results saved in {merged_json}.")
-        return merged_json, merged_result
 
     def _nms(self, pred, labels):
         nms_start_time = time.time()
@@ -566,36 +616,6 @@ class EvalManager:
                                   agnostic=self.opt.single_cls)
         nms_duration = time.time() - nms_start_time
         return out, nms_duration
-
-    def _write_txt(self, pred, shape, path):
-        if not self.opt.save_txt:
-            return
-        # Save result to txt
-        path = Path(path)
-        file_path = os.path.join(self.save_dir, 'labels', f'{path.stem}.txt')
-        gn = np.array(shape)[[1, 0, 1, 0]]  # normalization gain whwh
-        for *xyxy, conf, cls in pred.tolist():
-            xywh = (xyxy2xywh(np.array(xyxy).reshape(1, 4)) / gn).reshape(-1).tolist()  # normalized xywh
-            line = (cls, *xywh, conf) if self.opt.save_conf else (cls, *xywh)  # label format
-            with os.fdopen(os.open(file_path, WRITE_FLAGS, FILE_MODE), 'a') as f:
-                f.write(('%g ' * len(line)).rstrip() % line + '\n')
-
-    def _write_json_list(self, pred, pred_json, path):
-        if not self.opt.save_json:
-            return
-        # Save one JSON result
-        # >> example:
-        # >> {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
-        path = Path(path)
-        image_id = int(path.stem) if path.stem.isnumeric() else path.stem
-        box = xyxy2xywh(pred[:, :4])  # xywh
-        box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
-        for p, b in zip(pred.tolist(), box.tolist()):
-            pred_json.append({
-                'image_id': image_id,
-                'category_id': self.cls_map[int(p[5])],
-                'bbox': [round(x, 3) for x in b],
-                'score': round(p[4], 5)})
 
     def _confusion_matrix_process_batch(self, detections, labels):
         if not self.opt.plots:
@@ -642,8 +662,8 @@ class EvalManager:
             metric_stats.pred_stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))
 
             # Save/log
-            self._write_txt(pred_copy, shape, path)
-            self._write_json_list(pred_copy, metric_stats.pred_json, path)
+            self.io_processor.write_txt(pred_copy, shape, path)
+            self.io_processor.write_json_list(pred_copy, metric_stats.pred_json, path, self.data_manager.cls_map)
         metric_duration = time.time() - metric_start_time
         return metric_duration
 
