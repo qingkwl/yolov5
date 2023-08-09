@@ -181,19 +181,6 @@ def process_batch(detections, labels, iouv):
     return np.array(correct).astype(np.bool_)
 
 
-def load_checkpoint_to_yolo(model, ckpt_path):
-    param_dict = ms.load_checkpoint(ckpt_path)
-    new_params = {}
-    for k, v in param_dict.items():
-        if k.startswith("model.") or k.startswith("updates"):
-            new_params[k] = v
-        if k.startswith("ema.ema."):
-            k = k[len("ema.ema."):]
-            new_params[k] = v
-    ms.load_param_into_net(model, new_params)
-    LOGGER.info(f"load ckpt from \"{ckpt_path}\" success.")
-
-
 @dataclass
 class DatasetPack:
     per_epoch_size: int
@@ -206,6 +193,40 @@ class EvalContext:
     cur_epoch: Optional[int]
     model: Optional[Model]
     dataset_pack: Optional[DatasetPack]
+
+
+class ModelManager:
+    def __init__(self, opt, cfg, hyp, data_cfg):
+        self.opt = opt
+        self.cfg = cfg
+        self.hyp = hyp
+        self.data_cfg = data_cfg
+
+    def create_model(self):
+        # Load model
+        model = Model(self.opt.cfg, ch=3, nc=self.data_cfg['nc'], anchors=self.hyp.get('anchors'),
+                      sync_bn=False, hyp=self.hyp)  # create
+        ckpt_path = self.opt.weights
+        self.load_checkpoint_to_yolo(model, ckpt_path)
+
+        # Half
+        if self.opt.half_precision:
+            model.to_float(ms.float16)
+
+        return model
+
+    @staticmethod
+    def load_checkpoint_to_yolo(model, ckpt_path):
+        param_dict = ms.load_checkpoint(ckpt_path)
+        new_params = {}
+        for k, v in param_dict.items():
+            if k.startswith("model.") or k.startswith("updates"):
+                new_params[k] = v
+            if k.startswith("ema.ema."):
+                k = k[len("ema.ema."):]
+                new_params[k] = v
+        ms.load_param_into_net(model, new_params)
+        LOGGER.info(f"load ckpt from '{ckpt_path}' success.")
 
 
 class DataManager:
@@ -275,10 +296,20 @@ class DataManager:
         imgsz = check_img_size(imgsz, gs)
         return gs, imgsz
 
+@dataclass
+class ImgInfo:
+    img: np.ndarray
+    targets: np.ndarray
+    out: list[np.ndarray]
+    paths: np.ndarray
+    shapes: np.ndarray
+
+    def unpack(self):
+        return self.img, self.targets, self.out, self.paths, self.shapes
+
 
 class EvalManager:
-    # TODO: half_precision 参数化，compute_loss 去除？
-    def __init__(self, opt, half_precision=False, compute_loss=None):
+    def __init__(self, opt, compute_loss=None):
         self.opt = opt
 
         with open(opt.cfg, "r", encoding="utf-8") as f:
@@ -288,8 +319,8 @@ class EvalManager:
             self.hyp = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
         self.data_manager = DataManager(opt, self.cfg, self.hyp)
         self.dataset_cfg = self.data_manager.data_cfg
+        self.model_manager = ModelManager(opt, self.cfg, self.hyp, self.dataset_cfg)
 
-        self.half_precision = half_precision
         self.is_coco = False
         self.dataset_cfg: dict
         self.hyper_params = None
@@ -298,9 +329,8 @@ class EvalManager:
         self.save_dir: str = './'
         self.model = None
         self.training = False
-        self.img_size = self.opt.img_size
+        self.img_size = self.data_manager.get_img_info()[1]
         self.batch_size = self.opt.batch_size
-        self.grid_size = None
         self.cls_map: list[int] = []
         self.compute_loss = compute_loss
         self.synchronize = Synchronize(self.opt.rank_size)
@@ -401,13 +431,11 @@ class EvalManager:
             task = self.opt.task if self.opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test img
             dataset_pack = self.data_manager.get_dataset(epoch_size=1, mode=task)
             assert dataset_pack.per_epoch_size == dataset_pack.dataloader.get_dataset_size()
-            dataset_pack.dataloader = dataset_pack.dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
             eval_context.dataset_pack = dataset_pack
             LOGGER.info(f"Test create dataset success, epoch size {dataset_pack.per_epoch_size}.")
         else:
             assert dataset is not None
             assert dataloader is not None
-            eval_context.dataset_pack.dataloader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
         return eval_context
 
     def _prepare_for_eval(self, eval_context: EvalContext):
@@ -417,26 +445,9 @@ class EvalManager:
 
         # Config model
         model = eval_context.model
-        self.training = model is not None
+        self.training = model is not None   # do eval during training period
         if model is None:  # called by train.py
-            # Load model
-            # Hyperparameters
-            with open(self.opt.hyp) as f:
-                self.hyper_params = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
-            model = Model(self.opt.cfg, ch=3, nc=self.dataset_cfg['nc'], anchors=self.hyper_params.get('anchors'),
-                          sync_bn=False, hyp=self.hyper_params)  # create
-            ckpt_path = self.opt.weights
-            load_checkpoint_to_yolo(model, ckpt_path)
-            self.grid_size = max(int(ops.cast(model.stride, ms.float16).max()), 32)  # grid size (max stride)
-            self.img_size = check_img_size(self.opt.img_size, s=self.grid_size)  # check img_size
-        self.grid_size = max(int(ops.cast(model.stride, ms.float16).max()), 32)  # grid size (max stride)
-        self.img_size = self.img_size[0] if isinstance(self.img_size, list) else self.img_size
-        self.img_size = check_img_size(self.img_size, s=self.grid_size)  # check img_size
-
-        # Half
-        if self.half_precision:
-            model.to_float(ms.float16)
-
+            model = self.model_manager.create_model()
         model.set_train(False)
         eval_context.model = model
 
@@ -448,20 +459,17 @@ class EvalManager:
         opt = self.opt
         # Prepare for eval
         eval_context = self._prepare_for_eval(eval_context)
-        model = eval_context.model
-        dataloader = eval_context.dataset_pack.dataloader
-        per_epoch_size = eval_context.dataset_pack.per_epoch_size
-
         if opt.v5_metric:
             LOGGER.info("Testing with YOLOv5 AP metric...")
 
         dataset_cfg = self.dataset_cfg
+        model = eval_context.model
         dataset_cfg['names'] = dict(enumerate(model.names if hasattr(model, 'names') else model.module.names))
         start_idx = 1
         self.cls_map = coco80_to_coco91_class() if self.is_coco else list(range(start_idx, 1000 + start_idx))
 
         # Test
-        metric_stats, time_stats = self._eval(model, dataloader, per_epoch_size)
+        metric_stats, time_stats = self._eval(eval_context)
         self._compute_map_stats(metric_stats)
 
         # Print speeds
@@ -548,30 +556,6 @@ class EvalManager:
         LOGGER.info(f"Merged results saved in {merged_json}.")
         return merged_json, merged_result
 
-    def _config_model(self, model=None):
-        self.training = model is not None
-        if model is None:  # called by train.py
-            # Load model
-            # Hyperparameters
-            with open(self.opt.hyp) as f:
-                self.hyper_params = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
-            model = Model(self.opt.cfg, ch=3, nc=self.dataset_cfg['nc'], anchors=self.hyper_params.get('anchors'),
-                          sync_bn=False, hyp=self.hyper_params)  # create
-            ckpt_path = self.opt.weights
-            load_checkpoint_to_yolo(model, ckpt_path)
-            self.grid_size = max(int(ops.cast(model.stride, ms.float16).max()), 32)  # grid size (max stride)
-            self.img_size = check_img_size(self.opt.img_size, s=self.grid_size)  # check img_size
-        self.grid_size = max(int(ops.cast(model.stride, ms.float16).max()), 32)  # grid size (max stride)
-        self.img_size = self.img_size[0] if isinstance(self.img_size, list) else self.img_size
-        self.img_size = check_img_size(self.img_size, s=self.grid_size)  # check img_size
-
-        # Half
-        if self.half_precision:
-            model.to_float(ms.float16)
-
-        model.set_train(False)
-        return model
-
     def _nms(self, pred, labels):
         nms_start_time = time.time()
         out = non_max_suppression(pred.asnumpy(),
@@ -584,6 +568,8 @@ class EvalManager:
         return out, nms_duration
 
     def _write_txt(self, pred, shape, path):
+        if not self.opt.save_txt:
+            return
         # Save result to txt
         path = Path(path)
         file_path = os.path.join(self.save_dir, 'labels', f'{path.stem}.txt')
@@ -595,6 +581,8 @@ class EvalManager:
                 f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
     def _write_json_list(self, pred, pred_json, path):
+        if not self.opt.save_json:
+            return
         # Save one JSON result
         # >> example:
         # >> {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
@@ -609,10 +597,16 @@ class EvalManager:
                 'bbox': [round(x, 3) for x in b],
                 'score': round(p[4], 5)})
 
-    def _compute_metrics(self, img, targets, out: list[np.ndarray], paths, shapes, metric_stats: MetricStatistics):
+    def _confusion_matrix_process_batch(self, detections, labels):
+        if not self.opt.plots:
+            return
+        self.confusion_matrix.process_batch(detections=detections, labels=labels)
+
+    def _compute_metrics(self, img_info: ImgInfo, metric_stats: MetricStatistics):
         iou_vec = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
         num_iou = np.prod(iou_vec.shape)
         metric_start_time = time.time()
+        img, targets, out, paths, shapes = img_info.unpack()
         for si, pred in enumerate(out):
             labels = targets[targets[:, 0] == si, 1:]
             nl, npr, shape = labels.shape[0], pred.shape[0], shapes[si][0]  # number of labels, predictions
@@ -627,8 +621,7 @@ class EvalManager:
             if npr == 0:
                 if nl:
                     metric_stats.pred_stats.append((correct, *np.zeros((2, 0)).astype(np.bool_), labels[:, 0]))
-                    if self.opt.plots:
-                        self.confusion_matrix.process_batch(detections=None, labels=labels[:, 0])
+                    self._confusion_matrix_process_batch(detections=None, labels=labels[:, 0])
                 continue
 
             # Predictions
@@ -644,25 +637,25 @@ class EvalManager:
                 tbox = scale_coords(img[si].shape[1:], tbox, shape, shapes[si][1:])  # native-space labels
                 labelsn = np.concatenate((labels[:, 0:1], tbox), 1)  # native-space labels
                 correct = process_batch(pred_copy, labelsn, iou_vec)
-                if self.opt.plots:
-                    self.confusion_matrix.process_batch(pred_copy, labelsn)
+                self._confusion_matrix_process_batch(detections=pred_copy, labels=labelsn)
             # correct, conf, pred_cls, target_cls
             metric_stats.pred_stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))
 
             # Save/log
-            if self.opt.save_txt:
-                self._write_txt(pred_copy, shape, path)
-            if self.opt.save_json:
-                self._write_json_list(pred_copy, metric_stats.pred_json, path)
+            self._write_txt(pred_copy, shape, path)
+            self._write_json_list(pred_copy, metric_stats.pred_json, path)
         metric_duration = time.time() - metric_start_time
         return metric_duration
 
-    def _eval(self, model, dataloader, per_epoch_size):
+    def _eval(self, eval_context: EvalContext):
         opt = self.opt
         dataset_cfg = self.dataset_cfg
+        model, dataloader = eval_context.model, eval_context.dataset_pack.dataloader
+        per_epoch_size = eval_context.dataset_pack.per_epoch_size
         loss = np.zeros(3)
         time_stats = TimeStatistics()
         metric_stats = MetricStatistics()
+        dataloader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
         step_start_time = time.time()
         for batch_idx, meta in enumerate(dataloader):
             # targets: Nx6 ndarray, img_id, label, x, y, w, h
@@ -670,7 +663,7 @@ class EvalManager:
             img = img / 255.0  # 0 - 255 to 0.0 - 1.0
             img_tensor = Tensor.from_numpy(img)
             targets_tensor = Tensor.from_numpy(targets)
-            if self.half_precision:
+            if opt.half_precision:
                 img_tensor = ops.cast(img_tensor, ms.float16)
                 targets_tensor = ops.cast(targets_tensor, ms.float16)
 
@@ -699,15 +692,12 @@ class EvalManager:
             out, nms_duration = self._nms(pred_out, label)
             time_stats.nms_duration += nms_duration
 
+            img_info = ImgInfo(img, targets, out, paths, shapes)
             # Metrics
-            metric_duration = self._compute_metrics(img, targets, out, paths, shapes, metric_stats)
+            metric_duration = self._compute_metrics(img_info, metric_stats)
             time_stats.metric_duration += metric_duration
             # Plot images
-            if opt.plots and batch_idx < 3:
-                labels_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_labels.jpg')  # labels
-                plot_images(img, targets, paths, labels_path, dataset_cfg['names'])
-                pred_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_pred.jpg')  # predictions
-                plot_images(img, output_to_target(out), paths, pred_path, dataset_cfg['names'])
+            self.plot_image_samples(batch_idx, img_info)
 
             LOGGER.info(f"Step {batch_idx + 1}/{per_epoch_size} "
                         f"Time total {(time.time() - step_start_time):.2f}s  "
@@ -718,6 +708,17 @@ class EvalManager:
             step_start_time = time.time()
         metric_stats.set_loss(loss / per_epoch_size)
         return metric_stats, time_stats
+
+    def plot_image_samples(self, batch_idx, img_info: ImgInfo):
+        opt = self.opt
+        dataset_cfg = self.dataset_cfg
+        if not opt.plots or batch_idx >= 3:
+            return
+        img, targets, out, paths, shapes = img_info.unpack()
+        labels_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_labels.jpg')  # labels
+        plot_images(img, targets, paths, labels_path, dataset_cfg['names'])
+        pred_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_pred.jpg')  # predictions
+        plot_images(img, output_to_target(out), paths, pred_path, dataset_cfg['names'])
 
     def _compute_map_stats(self, metric_stats: MetricStatistics):
         opt = self.opt

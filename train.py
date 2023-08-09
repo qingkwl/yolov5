@@ -36,7 +36,7 @@ from mindspore.ops import functional as F
 from mindspore.profiler.profiling import Profiler
 
 from config.args import get_args_train
-from val import EvalManager, MetricStatistics, COCOResult, DataManager, DatasetPack, EvalContext
+from val import EvalManager, MetricStatistics, COCOResult, DataManager, DatasetPack, EvalContext, ModelManager
 from src.autoanchor import check_anchors, check_anchor_order
 from src.boost import build_train_network
 from src.general import (check_file, increment_path, labels_to_class_weights, LOGGER, empty,
@@ -105,12 +105,9 @@ class CheckpointQueue:
             os.remove(ckpt_to_delete)
 
 
-class ModelManager:
+class TrainModelManager(ModelManager):
     def __init__(self, opt, cfg, hyp, data_cfg):
-        self.opt = opt
-        self.cfg = cfg
-        self.hyp = hyp
-        self.data_cfg = data_cfg
+        super().__init__(opt, cfg, hyp, data_cfg)
 
     def create_model(self):
         opt, hyp = self.opt, self.hyp
@@ -222,7 +219,7 @@ class TrainManager:
         self.weight_dir = os.path.join(self.opt.save_dir, "weights")
 
         self.data_manager = DataManager(opt, self.cfg, self.hyp)
-        self.model_manager = ModelManager(opt, self.cfg, self.hyp, self.data_manager.data_cfg)
+        self.model_manager = TrainModelManager(opt, self.cfg, self.hyp, self.data_manager.data_cfg)
 
     @staticmethod
     def _write_map_result(coco_result, map_str_path, names):

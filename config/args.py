@@ -173,6 +173,7 @@ def get_args_eval():
     parser.add_argument('--result_view', type=ast.literal_eval, default=False, help='view the eval result')
     parser.add_argument('--recommend_threshold', type=ast.literal_eval, default=False,
                         help='recommend threshold in eval')
+    parser.add_argument('--half_precision', type=ast.literal_eval, default=False, help='Whether use fp16 for eval.')
 
     # args for ModelArts
     parser.add_argument('--enable_modelarts', type=ast.literal_eval, default=False, help='enable modelarts')
