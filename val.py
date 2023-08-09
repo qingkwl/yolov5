@@ -21,7 +21,9 @@ import json
 import os
 import time
 from collections import namedtuple
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional, Any
 
 import yaml
 import numpy as np
@@ -38,7 +40,7 @@ from src.general import LOGGER, AllReduce, empty
 from src.general import COCOEval as COCOeval
 from src.general import (Synchronize, SynchronizeManager, box_iou, check_file,
                          check_img_size, coco80_to_coco91_class, colorstr,
-                         increment_path, xywh2xyxy, xyxy2xywh, WRITE_FLAGS, FILE_MODE)
+                         increment_path, xywh2xyxy, xyxy2xywh, WRITE_FLAGS, FILE_MODE, process_dataset_cfg)
 from src.metrics import (ConfusionMatrix, ap_per_class, non_max_suppression, scale_coords)
 from src.network.yolo import Model
 from src.plots import output_to_target, plot_images, plot_study_txt
@@ -192,25 +194,106 @@ def load_checkpoint_to_yolo(model, ckpt_path):
     LOGGER.info(f"load ckpt from \"{ckpt_path}\" success.")
 
 
+@dataclass
+class DatasetPack:
+    per_epoch_size: int
+    dataloader: Optional[Any]
+    dataset: Optional[Any]
+
+
+@dataclass
+class EvalContext:
+    cur_epoch: Optional[int]
+    model: Optional[Model]
+    dataset_pack: Optional[DatasetPack]
+
+
+class DataManager:
+    def __init__(self, opt, cfg, hyp):
+        self.opt = opt
+        self.cfg = cfg
+        self.hyp = hyp
+        self.is_coco = False
+        self.data_cfg = None
+
+        self._init_data_cfg()
+
+    def _init_data_cfg(self):
+        opt = self.opt
+        self.is_coco = opt.data.endswith('coco.yaml')
+        with open(opt.data, "r", encoding="utf-8") as f:
+            data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
+        if opt.enable_modelarts:
+            data_dict['root'] = opt.data_dir
+        data_dict = process_dataset_cfg(data_dict)
+        nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
+        names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
+        assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
+        data_dict['names'] = names
+        data_dict['nc'] = nc
+        if self.opt.single_cls:
+            data_dict['nc'] = 1
+        self.data_cfg = data_dict
+
+    def get_dataset(self, epoch_size: int, mode: str = "train"):
+        opt = self.opt
+        # Image sizes
+        gs, imgsz = self.get_img_info(mode=mode)
+        is_train = mode == "train"
+        pad = 0.0 if is_train else 0.5
+        rect = opt.rect if is_train else False
+        hyp = self.hyp if is_train else None
+        cache = opt.cache_images if is_train else False
+        quad = opt.quad if is_train else None
+        rank, rank_size, num_parallel_workers = opt.rank, opt.rank_size, 12
+        image_weights = opt.image_weights if mode == "train" else False
+        if mode == "val":
+            rank = (opt.rank % 8) if opt.distributed_eval else 0
+            rank_size = min(8, opt.rank_size) if opt.distributed_eval else 1
+            num_parallel_workers = 4 if opt.rank_size > 1 else 8
+        dataloader, dataset, per_epoch_size = create_dataloader(
+            self.data_cfg[mode], imgsz, opt.batch_size, gs, opt,
+            epoch_size=epoch_size, pad=pad, rect=rect, hyp=hyp, augment=is_train, cache=cache,
+            rank=rank, rank_size=rank_size, num_parallel_workers=num_parallel_workers,
+            shuffle=is_train, drop_remainder=is_train, image_weights=image_weights, quad=quad,
+            prefix=colorstr(f"{mode}: "), model_train=is_train
+        )
+        dataset_pack = DatasetPack(
+            per_epoch_size=per_epoch_size,
+            dataset=dataset,
+            dataloader=dataloader
+        )
+        return dataset_pack
+
+    def get_img_info(self, mode: str = "train"):
+        stride = self.cfg['stride']
+        # Image sizes
+        gs = max(int(max(stride)), 32)  # grid size (max stride)
+        imgsz = self.opt.img_size
+        if isinstance(self.opt.img_size, (list, tuple)):
+            imgsz = self.opt.img_size[0] if mode == "train" else self.opt.img_size[1]
+        imgsz = check_img_size(imgsz, gs)
+        return gs, imgsz
+
+
 class EvalManager:
+    # TODO: half_precision 参数化，compute_loss 去除？
     def __init__(self, opt, half_precision=False, compute_loss=None):
         self.opt = opt
+
+        with open(opt.cfg, "r", encoding="utf-8") as f:
+            self.cfg = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
+        # Hyperparameters
+        with open(opt.hyp, "r", encoding="utf-8") as f:
+            self.hyp = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
+        self.data_manager = DataManager(opt, self.cfg, self.hyp)
+        self.dataset_cfg = self.data_manager.data_cfg
+
         self.half_precision = half_precision
         self.is_coco = False
         self.dataset_cfg: dict
         self.hyper_params = None
-        if isinstance(opt.data, str):
-            self.is_coco = opt.data.endswith('coco.yaml')
-            with open(opt.data) as f:
-                self.dataset_cfg = yaml.load(f, Loader=yaml.SafeLoader)
-        elif isinstance(opt.data, dict):
-            self.dataset_cfg = opt.data
-        else:
-            raise TypeError("The type of opt.data must be str or dict.")
-        if self.opt.single_cls:
-            self.dataset_cfg['nc'] = 1
         self.confusion_matrix = ConfusionMatrix(nc=self.dataset_cfg['nc'])
-        self._process_dataset_cfg()
         self.project_dir: str = ''
         self.save_dir: str = './'
         self.model = None
@@ -296,11 +379,79 @@ class EvalManager:
         LOGGER.info(total_time_fmt_str.format(*total_time))
         return speed
 
-    def eval(self, model=None, dataset=None, dataloader=None, cur_epoch=None):
+    def _create_dirs(self, cur_epoch=None):
+        if cur_epoch is not None:
+            project_dir = os.path.join(self.opt.project, f"epoch_{cur_epoch}")
+        else:
+            project_dir = self.opt.project
+        save_dir = os.path.join(project_dir, f"save_dir_{self.opt.rank}")
+        save_dir = increment_path(save_dir, exist_ok=self.opt.exist_ok)
+        os.makedirs(os.path.join(save_dir, f"labels_{self.opt.rank}"), exist_ok=self.opt.exist_ok)
+        self.project_dir = project_dir
+        self.save_dir = save_dir
+
+    def _config_dataset(self, eval_context: EvalContext):
+        dataset_pack = eval_context.dataset_pack
+        per_epoch_size, dataloader, dataset = None, None, None
+        if dataset_pack is not None:
+            per_epoch_size, dataloader, dataset = \
+                dataset_pack.per_epoch_size, dataset_pack.dataloader, dataset_pack.dataset
+        if dataloader is None or dataset is None:
+            LOGGER.info(f"Enable rect: {self.opt.rect}")
+            task = self.opt.task if self.opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test img
+            dataset_pack = self.data_manager.get_dataset(epoch_size=1, mode=task)
+            assert dataset_pack.per_epoch_size == dataset_pack.dataloader.get_dataset_size()
+            dataset_pack.dataloader = dataset_pack.dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
+            eval_context.dataset_pack = dataset_pack
+            LOGGER.info(f"Test create dataset success, epoch size {dataset_pack.per_epoch_size}.")
+        else:
+            assert dataset is not None
+            assert dataloader is not None
+            eval_context.dataset_pack.dataloader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
+        return eval_context
+
+    def _prepare_for_eval(self, eval_context: EvalContext):
+        if eval_context is None:
+            eval_context = EvalContext(None, None, None)
+        self._create_dirs(eval_context.cur_epoch)
+
+        # Config model
+        model = eval_context.model
+        self.training = model is not None
+        if model is None:  # called by train.py
+            # Load model
+            # Hyperparameters
+            with open(self.opt.hyp) as f:
+                self.hyper_params = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
+            model = Model(self.opt.cfg, ch=3, nc=self.dataset_cfg['nc'], anchors=self.hyper_params.get('anchors'),
+                          sync_bn=False, hyp=self.hyper_params)  # create
+            ckpt_path = self.opt.weights
+            load_checkpoint_to_yolo(model, ckpt_path)
+            self.grid_size = max(int(ops.cast(model.stride, ms.float16).max()), 32)  # grid size (max stride)
+            self.img_size = check_img_size(self.opt.img_size, s=self.grid_size)  # check img_size
+        self.grid_size = max(int(ops.cast(model.stride, ms.float16).max()), 32)  # grid size (max stride)
+        self.img_size = self.img_size[0] if isinstance(self.img_size, list) else self.img_size
+        self.img_size = check_img_size(self.img_size, s=self.grid_size)  # check img_size
+
+        # Half
+        if self.half_precision:
+            model.to_float(ms.float16)
+
+        model.set_train(False)
+        eval_context.model = model
+
+        eval_context = self._config_dataset(eval_context)
+
+        return eval_context
+
+    def eval(self, eval_context: Optional[EvalContext] = None):
         opt = self.opt
-        self._create_dirs(cur_epoch)
-        model = self._config_model(model)
-        dataloader, dataset, per_epoch_size = self._config_dataset(dataset, dataloader)
+        # Prepare for eval
+        eval_context = self._prepare_for_eval(eval_context)
+        model = eval_context.model
+        dataloader = eval_context.dataset_pack.dataloader
+        per_epoch_size = eval_context.dataset_pack.per_epoch_size
+
         if opt.v5_metric:
             LOGGER.info("Testing with YOLOv5 AP metric...")
 
@@ -397,24 +548,6 @@ class EvalManager:
         LOGGER.info(f"Merged results saved in {merged_json}.")
         return merged_json, merged_result
 
-    def _process_dataset_cfg(self):
-        if self.dataset_cfg is None:
-            return
-        self.dataset_cfg['train'] = os.path.join(self.dataset_cfg['root'], self.dataset_cfg['train'])
-        self.dataset_cfg['val'] = os.path.join(self.dataset_cfg['root'], self.dataset_cfg['val'])
-        self.dataset_cfg['test'] = os.path.join(self.dataset_cfg['root'], self.dataset_cfg['test'])
-
-    def _create_dirs(self, cur_epoch=None):
-        if cur_epoch is not None:
-            project_dir = os.path.join(self.opt.project, f"epoch_{cur_epoch}")
-        else:
-            project_dir = self.opt.project
-        save_dir = os.path.join(project_dir, f"save_dir_{self.opt.rank}")
-        save_dir = increment_path(save_dir, exist_ok=self.opt.exist_ok)
-        os.makedirs(os.path.join(save_dir, f"labels_{self.opt.rank}"), exist_ok=self.opt.exist_ok)
-        self.project_dir = project_dir
-        self.save_dir = save_dir
-
     def _config_model(self, model=None):
         self.training = model is not None
         if model is None:  # called by train.py
@@ -438,32 +571,6 @@ class EvalManager:
 
         model.set_train(False)
         return model
-
-    def _config_dataset(self, dataset=None, dataloader=None):
-        data_cfg = self.dataset_cfg
-        rank = self.opt.rank
-        rank_size = self.opt.rank_size
-        if dataloader is None or dataset is None:
-            LOGGER.info(f"Enable rect: {self.opt.rect}")
-            task = self.opt.task if self.opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test img
-            dataloader, dataset, per_epoch_size = create_dataloader(data_cfg[task], self.img_size, self.opt.batch_size,
-                                                                    self.grid_size, self.opt,
-                                                                    epoch_size=1, pad=0.5, rect=self.opt.rect,
-                                                                    rank=rank % 8,
-                                                                    rank_size=min(8, rank_size),
-                                                                    num_parallel_workers=4 if rank_size > 1 else 8,
-                                                                    shuffle=False,
-                                                                    drop_remainder=False,
-                                                                    prefix=colorstr(f'{task}: '))
-            assert per_epoch_size == dataloader.get_dataset_size()
-            dataloader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
-            LOGGER.info(f"Test create dataset success, epoch size {per_epoch_size}.")
-        else:
-            assert dataset is not None
-            assert dataloader is not None
-            per_epoch_size = dataloader.get_dataset_size()
-            dataloader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
-        return dataloader, dataset, per_epoch_size
 
     def _nms(self, pred, labels):
         nms_start_time = time.time()

@@ -141,11 +141,6 @@ def get_args_train():
     parser.add_argument('--eval_epoch_interval', type=int, default=10, help='Epoch interval to do evaluation')
     parser.add_argument('--metric', type=str, default='coco', help='Specify which map metric to use, support coco/yolo')
 
-    # args for ModelArts
-    parser.add_argument('--enable_modelarts', type=ast.literal_eval, default=False, help='enable modelarts')
-    parser.add_argument('--data_url', type=str, default='', help='ModelArts: obs path to dataset folder')
-    parser.add_argument('--train_url', type=str, default='', help='ModelArts: obs path to dataset folder')
-    parser.add_argument('--data_dir', type=str, default='/cache/data/', help='ModelArts: obs path to dataset folder')
     parser.add_argument('--run_profiler_epoch', type=int, default=2, help='Epoch num when run profiler.')
     return parser
 
@@ -178,6 +173,13 @@ def get_args_eval():
     parser.add_argument('--result_view', type=ast.literal_eval, default=False, help='view the eval result')
     parser.add_argument('--recommend_threshold', type=ast.literal_eval, default=False,
                         help='recommend threshold in eval')
+
+    # args for ModelArts
+    parser.add_argument('--enable_modelarts', type=ast.literal_eval, default=False, help='enable modelarts')
+    parser.add_argument('--data_url', type=str, default='', help='ModelArts: obs path to dataset folder')
+    parser.add_argument('--train_url', type=str, default='', help='ModelArts: obs path to dataset folder')
+    parser.add_argument('--data_dir', type=str, default='/cache/data/', help='ModelArts: obs path to dataset folder')
+
     return parser
 
 

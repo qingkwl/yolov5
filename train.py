@@ -36,12 +36,10 @@ from mindspore.ops import functional as F
 from mindspore.profiler.profiling import Profiler
 
 from config.args import get_args_train
-from val import EvalManager, MetricStatistics, COCOResult
+from val import EvalManager, MetricStatistics, COCOResult, DataManager, DatasetPack, EvalContext
 from src.autoanchor import check_anchors, check_anchor_order
 from src.boost import build_train_network
-from src.dataset import create_dataloader
-from src.general import (check_file, check_img_size, colorstr, increment_path,
-                         labels_to_class_weights, LOGGER, process_dataset_cfg, empty,
+from src.general import (check_file, increment_path, labels_to_class_weights, LOGGER, empty,
                          WRITE_FLAGS, FILE_MODE, SynchronizeManager)
 from src.network.common import EMA
 from src.network.loss import ComputeLoss
@@ -197,13 +195,6 @@ class ModelManager:
 
 
 @dataclass
-class DatasetPack:
-    per_epoch_size: int
-    dataloader: Optional[Any]
-    dataset: Optional[Any]
-
-
-@dataclass
 class TrainContext:
     cur_epoch: int
     steps_per_epoch: int
@@ -217,75 +208,13 @@ class TrainContext:
     val_data_pack: Optional[DatasetPack]
 
 
-class DataManager:
-    def __init__(self, opt, cfg, hyp):
-        self.opt = opt
-        self.cfg = cfg
-        self.hyp = hyp
-        self.data_cfg = None
-
-        self._init_data_cfg()
-
-    def _init_data_cfg(self):
-        opt = self.opt
-        with open(opt.data, "r", encoding="utf-8") as f:
-            data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
-        if opt.enable_modelarts:
-            data_dict['root'] = opt.data_dir
-        data_dict = process_dataset_cfg(data_dict)
-        nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
-        names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
-        assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
-        data_dict['names'] = names
-        data_dict['nc'] = nc
-        self.data_cfg = data_dict
-
-    def get_dataset(self, epoch_size: int, mode: str = "train"):
-        opt = self.opt
-        stride = self.cfg['stride']
-        # Image sizes
-        gs, imgsz = self.get_img_info()
-        is_train = mode == "train"
-        pad = 0.0 if is_train else 0.5
-        rect = opt.rect if is_train else False
-        hyp = self.hyp if is_train else None
-        cache = opt.cache_images if is_train else False
-        quad = opt.quad if is_train else None
-        rank, rank_size, num_parallel_workers = opt.rank, opt.rank_size, 12
-        image_weights = opt.image_weights if mode == "train" else False
-        if mode == "val":
-            rank = (opt.rank % 8) if opt.distributed_eval else 0
-            rank_size = min(8, opt.rank_size) if opt.distributed_eval else 1
-            num_parallel_workers = 4 if opt.rank_size > 1 else 8
-        dataloader, dataset, per_epoch_size = create_dataloader(
-            self.data_cfg[mode], imgsz, opt.batch_size, gs, opt,
-            epoch_size=epoch_size, pad=pad, rect=rect, hyp=hyp, augment=is_train, cache=cache,
-            rank=rank, rank_size=rank_size, num_parallel_workers=num_parallel_workers,
-            shuffle=is_train, drop_remainder=is_train, image_weights=image_weights, quad=quad,
-            prefix=colorstr(f"{mode}: "), model_train=is_train
-        )
-        dataset_pack = DatasetPack(
-            per_epoch_size=per_epoch_size,
-            dataset=dataset,
-            dataloader=dataloader
-        )
-        return dataset_pack
-
-    def get_img_info(self):
-        stride = self.cfg['stride']
-        # Image sizes
-        gs = max(int(max(stride)), 32)  # grid size (max stride)
-        imgsz, _ = [check_img_size(x, gs) for x in self.opt.img_size]  # verify imgsz are gs-multiples
-        return gs, imgsz
-
-
 class TrainManager:
     def __init__(self, opt):
         self.opt = opt
         with open(opt.cfg, "r", encoding="utf-8") as f:
             self.cfg = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
         # Hyperparameters
-        with open(opt.hyp) as f:
+        with open(opt.hyp, "r", encoding="utf-8") as f:
             self.hyp = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
 
         self.best_map = 0.
@@ -523,9 +452,9 @@ class TrainManager:
         del param_dict
         infer_model.set_train(False)
         cur_epoch = train_context.cur_epoch
-        val_dataset, val_dataloader = train_context.val_data_pack.dataset, train_context.val_data_pack.dataloader
         eval_manager = EvalManager(opt)
-        val_result = eval_manager.eval(infer_model, val_dataset, val_dataloader, cur_epoch)
+        eval_context = EvalContext(cur_epoch=cur_epoch, model=infer_model, dataset_pack=train_context.val_data_pack)
+        val_result = eval_manager.eval(eval_context)
         infer_model.set_train(True)
         if opt.metric == 'yolo':
             coco_result = val_result.metric_stats
