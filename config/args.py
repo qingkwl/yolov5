@@ -193,6 +193,9 @@ def get_args_infer():
     parser.add_argument('--om', type=str, default='yolov5s.om', help='model.om path')
     parser.add_argument('--rect', type=ast.literal_eval, default=False, help='rectangular training')
     parser.add_argument('--output_dir', type=str, default='./output', help='Folder path to save prediction json')
+    parser.add_argument('--enable_modelarts', type=ast.literal_eval, default=False, help='enable modelarts')
+    parser.add_argument('--distributed_eval', type=ast.literal_eval, default=False, help='Distribute test or not')
+
     return parser
 
 

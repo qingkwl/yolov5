@@ -251,7 +251,7 @@ class DataManager:
         data_dict = process_dataset_cfg(data_dict)
         nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
         names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
-        assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
+        assert len(names) == nc, f'{len(names)} names found for nc={nc} dataset in {opt.data}' # check
         data_dict['names'] = names
         data_dict['nc'] = nc
         if self.opt.single_cls:
@@ -406,7 +406,7 @@ class IOProcessor:
 
     def write_json_list(self, pred, path, cls_map: list[int]):
         if not self.opt.save_json:
-            return
+            return []
         # Save one JSON result
         # >> example:
         # >> {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
@@ -504,7 +504,7 @@ class IOProcessor:
         data_dir = Path(dataset_cfg["val"]).parent
         img_path_name = os.path.splitext(os.path.basename(dataset_cfg["val"]))[0]
         im_path_dir = os.path.join(data_dir, "images", img_path_name)
-        with open(pred_json_path, 'r') as f:
+        with open(pred_json_path, 'r', encoding="utf-8") as f:
             result = json.load(f)
         result_files = coco_visual.results2json(dataset_coco, result, "./results.pkl")
         coco_visual.coco_eval(Dict(config), result_files, eval_types, dataset_coco, im_path_dir=im_path_dir,
@@ -528,7 +528,7 @@ class IOProcessor:
         dataset_cfg = self.dataset_cfg
         if not opt.plots or batch_idx >= 3:
             return
-        img, targets, out, paths, shapes = img_info.unpack()
+        img, targets, out, paths, _ = img_info.unpack()
         labels_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_labels.jpg')  # labels
         plot_images(img, targets, paths, labels_path, dataset_cfg['names'])
         pred_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_pred.jpg')  # predictions
@@ -569,7 +569,6 @@ class EvalManager:
         self.stats_displayer = StatsDisplayer(opt, self.dataset_cfg)
 
         self.dataset_cfg: dict
-        self.hyper_params = None
         self.confusion_matrix = ConfusionMatrix(nc=self.dataset_cfg['nc'])
         self.project_dir: str = ''
         self.save_dir: str = './'
@@ -583,10 +582,9 @@ class EvalManager:
 
     def _config_dataset(self, eval_context: EvalContext):
         dataset_pack = eval_context.dataset_pack
-        per_epoch_size, dataloader, dataset = None, None, None
+        dataloader, dataset = None, None
         if dataset_pack is not None:
-            per_epoch_size, dataloader, dataset = \
-                dataset_pack.per_epoch_size, dataset_pack.dataloader, dataset_pack.dataset
+            dataloader, dataset = dataset_pack.dataloader, dataset_pack.dataset
         if dataloader is None or dataset is None:
             LOGGER.info(f"Enable rect: {self.opt.rect}")
             task = self.opt.task if self.opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test img
@@ -795,8 +793,6 @@ class EvalManager:
         pred_stats: list[np.ndarray] = [np.concatenate(item, axis=0) for item in pred_stats]
         metric_stats.pred_stats = pred_stats
 
-        seen = metric_stats.seen
-        names = dataset_cfg['names']
         nc = dataset_cfg['nc']
         if not empty(pred_stats) and pred_stats[0].any():
             metric_stats.compute_ap_per_class(plot=opt.plots, save_dir=self.save_dir, names=self.dataset_cfg['names'])
@@ -806,13 +802,7 @@ class EvalManager:
         self.stats_displayer.print_map_stats(metric_stats, pred_stats, self.training)
 
 
-def main():
-    parser = get_args_eval()
-    opt = parser.parse_args()
-    opt.save_json |= opt.data.endswith('coco.yaml')
-    opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
-    print(opt)
-
+def init_env(opt):
     ms_mode = ms.GRAPH_MODE if opt.ms_mode == "graph" else ms.PYNATIVE_MODE
     ms.set_context(mode=ms.PYNATIVE_MODE, device_target=opt.device_target)
     context.set_context(mode=ms_mode, device_target=opt.device_target)
@@ -827,6 +817,16 @@ def main():
     context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size)
     opt.rank_size = rank_size
     opt.rank = rank
+
+
+def main():
+    parser = get_args_eval()
+    opt = parser.parse_args()
+    opt.save_json |= opt.data.endswith('coco.yaml')
+    opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
+    print(opt)
+
+    init_env(opt)
 
     if opt.task in ('train', 'val', 'test'):  # run normally
         print("opt:", opt)

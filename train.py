@@ -22,7 +22,7 @@ from collections import deque
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional
 
 import yaml
 import numpy as np
@@ -30,6 +30,7 @@ import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
 from mindspore import Parameter, Tensor, context
+from mindspore.amp import StaticLossScaler, DynamicLossScaler
 from mindspore.communication.management import get_group_size, get_rank, init
 from mindspore.context import ParallelMode
 from mindspore.ops import functional as F
@@ -106,9 +107,6 @@ class CheckpointQueue:
 
 
 class TrainModelManager(ModelManager):
-    def __init__(self, opt, cfg, hyp, data_cfg):
-        super().__init__(opt, cfg, hyp, data_cfg)
-
     def create_model(self):
         opt, hyp = self.opt, self.hyp
         num_cls = self.data_cfg['nc']
@@ -196,13 +194,21 @@ class TrainContext:
     cur_epoch: int
     steps_per_epoch: int
     model: Model
-    ema: EMA
+    ema: Optional[EMA]
     infer_model: Optional[Model]
     optimizer: nn.Cell
     ckpt_queue: CheckpointQueue
     ema_ckpt_queue: CheckpointQueue
     train_data_pack: DatasetPack
     val_data_pack: Optional[DatasetPack]
+    train_step_net: nn.Cell
+    loss: ms.Tensor = ms.Tensor([0.], ms.float32)
+    epoch_time: float = 0.
+
+    def set_train(self, training: bool = True):
+        self.model.set_train(training)
+        if self.ema is not None:
+            self.ema.set_train(training)
 
 
 class TrainManager:
@@ -259,18 +265,18 @@ class TrainManager:
         model = self.model_manager.freeze_layer(model)
 
         # Build dataset
-        gs, imgsz = self.data_manager.get_img_info()
+        _, imgsz = self.data_manager.get_img_info()
         train_epoch_size = 1 if opt.optimizer == "thor" else opt.epochs - resume_epoch
         train_dataset_pack = self.data_manager.get_dataset(train_epoch_size, mode="train")
         infer_model, val_dataset_pack = self.prepare_for_eval(model)
 
         # Automatically fit anchor size
         self.autoanchor(model, train_dataset_pack)
-
         mlc = np.concatenate(train_dataset_pack.dataset.labels, 0)[:, 0].max()  # max label class
         num_cls = self.data_cfg['nc']
-        assert mlc < num_cls, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g'\
-                              % (mlc, num_cls, opt.data, num_cls - 1)
+        assert mlc < num_cls,\
+            f'Label class {mlc} exceeds nc={num_cls} in {opt.data}. ' \
+            f'Possible class labels are 0-{num_cls - 1}'
 
         # Optimizer
         optimizer = self.build_optimizer(model, train_dataset_pack, resume_epoch)
@@ -281,10 +287,6 @@ class TrainManager:
 
         # Build train process function
         train_step_net = self.build_train_step_net(model, ema, optimizer)
-        model.set_train(True)
-        optimizer.set_train(True)
-        ema_ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
-        ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
 
         data_size = train_dataset_pack.dataloader.get_dataset_size()
         jit = opt.ms_mode.lower() == "graph"
@@ -295,30 +297,44 @@ class TrainManager:
         train_context = TrainContext(
             cur_epoch=0, steps_per_epoch=data_size,
             model=model, ema=ema, optimizer=optimizer, infer_model=infer_model,
-            ckpt_queue=ckpt_queue, ema_ckpt_queue=ema_ckpt_queue,
-            train_data_pack=train_dataset_pack, val_data_pack=val_dataset_pack
+            ckpt_queue=CheckpointQueue(opt.max_ckpt_num),
+            ema_ckpt_queue=CheckpointQueue(opt.max_ckpt_num),
+            train_data_pack=train_dataset_pack, val_data_pack=val_dataset_pack,
+            train_step_net=train_step_net,
         )
+        train_context.set_train(training=True)
+
         with ms.SummaryRecord(summary_dir) if opt.summary else nullcontext() as summary_record:
             for cur_epoch in range(resume_epoch, opt.epochs):
                 cur_epoch = cur_epoch + 1
                 start_train_time = time.time()
                 loss = sink_process()
                 end_train_time = time.time()
-                step_time = end_train_time - start_train_time
-                LOGGER.info(f"Epoch {opt.epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
-                            f"epoch time {step_time * 1000:.2f} ms, "
-                            f"step time {step_time * 1000 / data_size:.2f} ms, "
-                            f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
-                            f"lbox loss: {train_step_net.network.lbox_loss.asnumpy():.4f}, "
-                            f"lobj loss: {train_step_net.network.lobj_loss.asnumpy():.4f}, "
-                            f"lcls loss: {train_step_net.network.lcls_loss.asnumpy():.4f}.")
+                epoch_time = end_train_time - start_train_time
+                train_context.loss = loss
+                train_context.epoch_time = epoch_time
+                self.print_epoch_stats(train_context, resume_epoch)
                 train_context.cur_epoch = cur_epoch
-                self.summarize_loss(cur_epoch, loss, data_size, summary_record, train_step_net)
+                self.summarize_loss(train_context, summary_record)
                 if opt.profiler and (cur_epoch == opt.run_profiler_epoch):
                     break
-                self.save_ckpt(ckpt_queue, cur_epoch, ema, ema_ckpt_queue, model)
+                self.save_ckpt(train_context)
                 self.run_eval(train_context, summary_record)
         return 0
+
+    def print_epoch_stats(self, train_context: TrainContext, resume_epoch):
+        cur_epoch = train_context.cur_epoch
+        opt = self.opt
+        data_size = train_context.steps_per_epoch
+        train_step_net = train_context.train_step_net
+        loss = train_context.loss
+        LOGGER.info(f"Epoch {opt.epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
+                    f"epoch time {train_context.epoch_time * 1000:.2f} ms, "
+                    f"step time {train_context.epoch_time * 1000 / data_size:.2f} ms, "
+                    f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
+                    f"lbox loss: {train_step_net.network.lbox_loss.asnumpy():.4f}, "
+                    f"lobj loss: {train_step_net.network.lobj_loss.asnumpy():.4f}, "
+                    f"lcls loss: {train_step_net.network.lcls_loss.asnumpy():.4f}.")
 
     def prepare_for_eval(self, model):
         opt = self.opt
@@ -392,9 +408,9 @@ class TrainManager:
             anchors = np.load(str(anchors_path.resolve()))
             model.anchors[:] = ms.Tensor(anchors.reshape(model.anchors.shape), dtype=ms.float32)
             check_anchor_order(model)
-            info = f'Done ✅ (optional: update model *.yaml to use these anchors in the future)'
+            info = 'Done ✅ (optional: update model *.yaml to use these anchors in the future)'
         else:
-            info = f'Done ⚠️ (original anchors better than new anchors, proceeding with original anchors)'
+            info = 'Done ⚠️ (original anchors better than new anchors, proceeding with original anchors)'
         LOGGER.info(info)
 
     def dump_cfg(self):
@@ -463,13 +479,13 @@ class TrainManager:
     def save_ema(ema, ema_ckpt_path, append_dict=None):
         params_list = []
         for p in ema.ema_weights:
-            _param_dict = {'name': p.name[len("ema."):], 'data': Tensor(p.data.asnumpy())}
-            params_list.append(_param_dict)
+            tmp_param_dict = {'name': p.name[len("ema."):], 'data': Tensor(p.data.asnumpy())}
+            params_list.append(tmp_param_dict)
         ms.save_checkpoint(params_list, ema_ckpt_path, append_dict=append_dict)
 
-    def save_ckpt(self, ckpt_queue, cur_epoch, ema, ema_ckpt_queue, model):
+    def save_ckpt(self, train_context: TrainContext):
         opt = self.opt
-
+        cur_epoch = train_context.cur_epoch
         def is_save_epoch():
             return (cur_epoch >= opt.start_save_epoch) and (cur_epoch % opt.save_interval == 0)
 
@@ -482,21 +498,26 @@ class TrainManager:
         # Save Checkpoint
         model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
         ckpt_path = os.path.join(self.weight_dir, f"{model_name}_{cur_epoch}.ckpt")
-        ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
-        ckpt_queue.append(ckpt_path)
+        ms.save_checkpoint(train_context.model, ckpt_path, append_dict={"epoch": cur_epoch})
+        train_context.ckpt_queue.append(ckpt_path)
         self._modelarts_sync(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
-        if ema is None:
+        if train_context.ema is None:
             return
         ema_ckpt_path = os.path.join(self.weight_dir, f"EMA_{model_name}_{cur_epoch}.ckpt")
-        append_dict = {"updates": ema.updates, "epoch": cur_epoch}
-        self.save_ema(ema, ema_ckpt_path, append_dict)
-        ema_ckpt_queue.append(ema_ckpt_path)
+        append_dict = {"updates": train_context.ema.updates, "epoch": cur_epoch}
+        self.save_ema(train_context.ema, ema_ckpt_path, append_dict)
+        train_context.ema_ckpt_queue.append(ema_ckpt_path)
         LOGGER.info(f"Save ckpt path: {ema_ckpt_path}")
-        self._modelarts_sync(ema_ckpt_path, opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
+        self._modelarts_sync(ema_ckpt_path,
+                             os.path.join(opt.train_url, "weights", os.path.basename(ema_ckpt_path)))
 
-    def summarize_loss(self, cur_epoch, loss, steps_per_epoch, summary_record, train_step):
+    def summarize_loss(self, train_context: TrainContext, summary_record):
+        cur_epoch = train_context.cur_epoch
+        steps_per_epoch = train_context.steps_per_epoch
+        train_step = train_context.train_step_net
         if not self.opt.summary or (cur_epoch % self.opt.summary_interval == 0):
             return
+        loss = train_context.loss
         summary_record.add_value('scalar', 'loss', loss / self.opt.batch_size)
         summary_record.add_value('scalar', 'lbox', train_step.network.lbox_loss)
         summary_record.add_value('scalar', 'lobj', train_step.network.lobj_loss)
@@ -529,10 +550,8 @@ class TrainManager:
     def get_loss_scaler(self):
         opt = self.opt
         if opt.ms_loss_scaler == "dynamic":
-            from mindspore.amp import DynamicLossScaler
             loss_scaler = DynamicLossScaler(2 ** 12, 2, 1000)
         elif opt.ms_loss_scaler == "static":
-            from mindspore.amp import StaticLossScaler
             loss_scaler = StaticLossScaler(opt.ms_loss_scaler_value)
         else:
             loss_scaler = None
@@ -546,16 +565,7 @@ class TrainManager:
         sync_data(src_dir, dst_dir)
 
 
-def main():
-    parser = get_args_train()
-    opt = parser.parse_args()
-    opt.save_json |= opt.data.endswith('coco.yaml')
-    opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
-    assert not empty(opt.cfg) or not empty(opt.weights), 'either --cfg or --weights must be specified'
-    opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
-    opt.name = 'evolve' if opt.evolve else opt.name
-    opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
-
+def init_env(opt):
     ms_mode = context.GRAPH_MODE if opt.ms_mode == "graph" else context.PYNATIVE_MODE
     context.set_context(mode=ms_mode, device_target=opt.device_target, save_graphs=False)
     if opt.device_target == "Ascend":
@@ -568,9 +578,21 @@ def main():
         rank, rank_size, parallel_mode = get_rank(), get_group_size(), ParallelMode.DATA_PARALLEL
         context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size,
                                           all_reduce_fusion_config=[10, 70, 130, 190, 250, 310])
-
     opt.rank, opt.rank_size = rank, rank_size
     opt.total_batch_size = opt.batch_size * opt.rank_size
+
+
+def main():
+    parser = get_args_train()
+    opt = parser.parse_args()
+    opt.save_json |= opt.data.endswith('coco.yaml')
+    opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
+    assert not empty(opt.cfg) or not empty(opt.weights), 'either --cfg or --weights must be specified'
+    opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
+    opt.name = 'evolve' if opt.evolve else opt.name
+    opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
+
+    init_env(opt)
 
     # Train
     profiler = None
