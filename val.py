@@ -22,6 +22,7 @@ import os
 import time
 from collections import namedtuple
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 from typing import Optional, Any
 
@@ -324,6 +325,54 @@ class ImgInfo:
         return self.img, self.targets, self.out, self.paths, self.shapes
 
 
+def catch_exception(msg=""):
+    def decorator(func):
+        @wraps(func)
+        def _wrapped_func(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                LOGGER.exception(msg)
+        return _wrapped_func
+    return decorator
+
+
+class StatsDisplayer:
+    def __init__(self, opt, dataset_cfg):
+        self.opt = opt
+        self.dataset_cfg = dataset_cfg
+
+    @staticmethod
+    def print_stats(metric_stats, time_stats, img_size, batch_size):
+        total_time_fmt_str = 'Total time: {:.1f}/{:.1f}/{:.1f}/{:.1f} s ' \
+                             'inference/NMS/Metric/total {:g}x{:g} image at batch-size {:g}'
+        speed_fmt_str = 'Speed: {:.1f}/{:.1f}/{:.1f}/{:.1f} ms ' \
+                        'inference/NMS/Metric/total per {:g}x{:g} image at batch-size {:g}'
+        total_time = (*time_stats.get_tuple(), img_size, img_size, batch_size)  # tuple
+        speed = tuple(x / metric_stats.seen * 1E3 for x in total_time[:4]) + (img_size, img_size, batch_size)  # tuple
+        LOGGER.info(speed_fmt_str.format(*speed))
+        LOGGER.info(total_time_fmt_str.format(*total_time))
+        return speed
+
+    def print_map_stats(self, metric_stats, pred_stats, is_training: bool = False):
+        opt = self.opt
+        dataset_cfg = self.dataset_cfg
+        seen = metric_stats.seen
+        nt = metric_stats.nt
+        names = dataset_cfg['names']
+        nc = dataset_cfg['nc']
+        # Print results
+        title = ('{:22s}' + '{:11s}' * 6).format('Class', 'Images', 'Instances', 'P', 'R', 'mAP50', 'mAP50-95')
+        pf = '{:<20s}' + '{:<12d}' * 2 + '{:<12.3g}' * 4  # print format
+        LOGGER.info(title)
+        LOGGER.info(pf.format('all', seen, nt.sum(), *metric_stats.get_mean_stats()))
+        # Print results per class
+        if (opt.verbose or (nc < 50 and not is_training)) and nc > 1 and not empty(pred_stats):
+            for i, c in enumerate(metric_stats.ap_cls):
+                # Class     Images  Instances          P          R      mAP50   mAP50-95:
+                LOGGER.info(pf.format(names[c], seen, nt[c], *metric_stats.get_ap_per_class(i)))
+
+
 class IOProcessor:
     def __init__(self, opt, dataset_cfg):
         self.opt = opt
@@ -355,7 +404,7 @@ class IOProcessor:
             with os.fdopen(os.open(file_path, WRITE_FLAGS, FILE_MODE), 'a') as f:
                 f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
-    def write_json_list(self, pred, pred_json, path, cls_map: list[int]):
+    def write_json_list(self, pred, path, cls_map: list[int]):
         if not self.opt.save_json:
             return
         # Save one JSON result
@@ -365,12 +414,25 @@ class IOProcessor:
         image_id = int(path.stem) if path.stem.isnumeric() else path.stem
         box = xyxy2xywh(pred[:, :4])  # xywh
         box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
+        pred_json = []
         for p, b in zip(pred.tolist(), box.tolist()):
             pred_json.append({
                 'image_id': image_id,
                 'category_id': cls_map[int(p[5])],
                 'bbox': [round(x, 3) for x in b],
                 'score': round(p[4], 5)})
+        return pred_json
+
+    def save_map(self, coco_result):
+        dataset_cfg = self.dataset_cfg
+        s = f"\n{len(glob.glob(os.path.join(self.save_dir, 'labels/*.txt')))} labels saved to " \
+            f"{os.path.join(self.save_dir, 'labels')}" if self.opt.save_txt else ''
+        LOGGER.info(f"Results saved to {self.save_dir}, {s}")
+        with os.fdopen(os.open("class_map.txt", WRITE_FLAGS, FILE_MODE), "w") as file:
+            file.write(f"COCO map:\n{coco_result.stats_str}\n")
+            if coco_result.category_stats_strs:
+                for idx, category_str in enumerate(coco_result.category_stats_strs):
+                    file.write(f"\nclass {dataset_cfg['names'][idx]}:\n{category_str}\n")
 
     @staticmethod
     def save_json(pred_json, save_path):
@@ -405,6 +467,17 @@ class IOProcessor:
         LOGGER.info(f"Merged results saved in {merged_json}.")
         return merged_json, merged_result
 
+    def merge_pred_stats(self, metric_stats):
+        # Merge prediction stats
+        project_dir = Path(self.save_dir).parent
+        pred_stats: list[list] = [[] for _ in range(len(metric_stats.pred_stats))]
+        for file_path in project_dir.rglob("pred_stats*.npy"):
+            stats = np.load(str(file_path.resolve()), allow_pickle=True)
+            for i, item in enumerate(stats):
+                pred_stats[i].append(item)
+        return pred_stats
+
+    @catch_exception("Exception when running pycocotools")
     def eval_coco(self, anno_json, pred_json, dataset=None):
         LOGGER.info("Start evaluating mAP...")
         anno = COCO(anno_json)  # init annotations api
@@ -420,6 +493,7 @@ class IOProcessor:
         LOGGER.info("Finish evaluating mAP.")
         return coco_result
 
+    @catch_exception("Failed when visualize evaluation result.")
     def visualize_coco(self, anno_json, pred_json_path):
         LOGGER.info("Start visualization result.")
         dataset_cfg = self.dataset_cfg
@@ -437,6 +511,30 @@ class IOProcessor:
                               score_threshold=None,
                               recommend_threshold=self.opt.recommend_threshold)
 
+    def plot_confusion_matrix(self, confusion_matrix):
+        if not self.opt.plots:
+            return
+        dataset_cfg = self.dataset_cfg
+        opt = self.opt
+        matrix = ms.Tensor(confusion_matrix.matrix)
+        if opt.distributed_eval:
+            matrix = AllReduce()(matrix).asnumpy()
+        confusion_matrix.matrix = matrix
+        if opt.rank % 8 == 0:
+            confusion_matrix.plot(save_dir=self.save_dir, names=list(dataset_cfg['names'].values()))
+
+    def plot_image_samples(self, batch_idx, img_info: ImgInfo):
+        opt = self.opt
+        dataset_cfg = self.dataset_cfg
+        if not opt.plots or batch_idx >= 3:
+            return
+        img, targets, out, paths, shapes = img_info.unpack()
+        labels_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_labels.jpg')  # labels
+        plot_images(img, targets, paths, labels_path, dataset_cfg['names'])
+        pred_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_pred.jpg')  # predictions
+        plot_images(img, output_to_target(out), paths, pred_path, dataset_cfg['names'])
+
+    @catch_exception("Error when evaluating COCO mAP")
     def join_coco_result(self, metric_stats, anno_json):
         opt = self.opt
         ckpt_name = Path(opt.weights).stem if opt.weights is not None else ''  # weights
@@ -449,17 +547,10 @@ class IOProcessor:
                 if opt.distributed_eval:
                     pred_json_path, pred_json = self._merge_pred_json(prefix=ckpt_name)
                 if opt.result_view or opt.recommend_threshold:
-                    try:
-                        self.visualize_coco(anno_json, pred_json_path)
-                    except Exception:
-                        LOGGER.exception("Failed when visualize evaluation result.")
-                try:
-                    result = self.eval_coco(anno_json, pred_json)
-                    LOGGER.info(f"\nCOCO mAP:\n{result.stats_str}")
-                except Exception:
-                    LOGGER.exception("Exception when running pycocotools")
-            coco_result = result
-        return coco_result
+                    self.visualize_coco(anno_json, pred_json_path)
+                result = self.eval_coco(anno_json, pred_json)
+                LOGGER.info(f"\nCOCO mAP:\n{result.stats_str}")
+        return result
 
 
 class EvalManager:
@@ -475,6 +566,7 @@ class EvalManager:
         self.dataset_cfg = self.data_manager.data_cfg
         self.model_manager = ModelManager(opt, self.cfg, self.hyp, self.dataset_cfg)
         self.io_processor = IOProcessor(opt, self.dataset_cfg)
+        self.stats_displayer = StatsDisplayer(opt, self.dataset_cfg)
 
         self.dataset_cfg: dict
         self.hyper_params = None
@@ -488,34 +580,6 @@ class EvalManager:
         self.compute_loss = compute_loss
         self.synchronize = Synchronize(self.opt.rank_size)
         self.reduce_sum = AllReduce()
-
-    @staticmethod
-    def save_json(pred_json, save_path):
-        with os.fdopen(os.open(save_path, WRITE_FLAGS, FILE_MODE), 'w') as file:
-            json.dump(pred_json, file)
-
-    def save_map(self, coco_result):
-        dataset_cfg = self.dataset_cfg
-        s = f"\n{len(glob.glob(os.path.join(self.save_dir, 'labels/*.txt')))} labels saved to " \
-            f"{os.path.join(self.save_dir, 'labels')}" if self.opt.save_txt else ''
-        LOGGER.info(f"Results saved to {self.save_dir}, {s}")
-        with os.fdopen(os.open("class_map.txt", WRITE_FLAGS, FILE_MODE), "w") as file:
-            file.write(f"COCO map:\n{coco_result.stats_str}\n")
-            if coco_result.category_stats_strs:
-                for idx, category_str in enumerate(coco_result.category_stats_strs):
-                    file.write(f"\nclass {dataset_cfg['names'][idx]}:\n{category_str}\n")
-
-    def print_stats(self, metric_stats, time_stats):
-        total_time_fmt_str = 'Total time: {:.1f}/{:.1f}/{:.1f}/{:.1f} s ' \
-                             'inference/NMS/Metric/total {:g}x{:g} image at batch-size {:g}'
-        speed_fmt_str = 'Speed: {:.1f}/{:.1f}/{:.1f}/{:.1f} ms ' \
-                        'inference/NMS/Metric/total per {:g}x{:g} image at batch-size {:g}'
-        img_size, batch_size = self.img_size, self.batch_size
-        total_time = (*time_stats.get_tuple(), img_size, img_size, batch_size)  # tuple
-        speed = tuple(x / metric_stats.seen * 1E3 for x in total_time[:4]) + (img_size, img_size, batch_size)  # tuple
-        LOGGER.info(speed_fmt_str.format(*speed))
-        LOGGER.info(total_time_fmt_str.format(*total_time))
-        return speed
 
     def _config_dataset(self, eval_context: EvalContext):
         dataset_pack = eval_context.dataset_pack
@@ -568,25 +632,20 @@ class EvalManager:
         self._compute_map_stats(metric_stats)
 
         # Print speeds
-        speed = self.print_stats(metric_stats, time_stats)
+        speed = self.stats_displayer.print_stats(metric_stats, time_stats, self.img_size, self.batch_size)
 
         # Plots
-        if opt.plots:
-            self._plot_confusion_matrix()
+        self.io_processor.plot_confusion_matrix(self.confusion_matrix)
 
         coco_result = COCOResult()
         # Save JSON
         if opt.save_json and not empty(metric_stats.pred_json):
-            try:
-                # coco_result = self._save_eval_result(metric_stats)
-                self.io_processor.save_eval_results(metric_stats)
-                coco_result = self.io_processor.join_coco_result(metric_stats, self.data_manager.get_val_anno())
-            except Exception:
-                LOGGER.exception("Error when evaluating COCO mAP")
+            self.io_processor.save_eval_results(metric_stats)
+            coco_result = self.io_processor.join_coco_result(metric_stats, self.data_manager.get_val_anno())
 
         # Return results
         if not self.training and opt.rank % 8 == 0:
-            self.save_map(coco_result)
+            self.io_processor.save_map(coco_result)
         maps = np.zeros(dataset_cfg['nc']) + coco_result.get_map()
         if opt.rank % 8 == 0:
             for i, c in enumerate(metric_stats.ap_cls):
@@ -595,16 +654,6 @@ class EvalManager:
         model.set_train()
         val_result = namedtuple('ValResult', ['metric_stats', 'maps', 'speed', 'coco_result'])
         return val_result(metric_stats, maps, speed, coco_result)
-
-    def _plot_confusion_matrix(self):
-        dataset_cfg = self.dataset_cfg
-        opt = self.opt
-        matrix = ms.Tensor(self.confusion_matrix.matrix)
-        if opt.distributed_eval:
-            matrix = AllReduce()(matrix).asnumpy()
-        self.confusion_matrix.matrix = matrix
-        if opt.rank % 8 == 0:
-            self.confusion_matrix.plot(save_dir=self.save_dir, names=list(dataset_cfg['names'].values()))
 
     def _nms(self, pred, labels):
         nms_start_time = time.time()
@@ -663,13 +712,12 @@ class EvalManager:
 
             # Save/log
             self.io_processor.write_txt(pred_copy, shape, path)
-            self.io_processor.write_json_list(pred_copy, metric_stats.pred_json, path, self.data_manager.cls_map)
+            metric_stats.pred_json = self.io_processor.write_json_list(pred_copy, path, self.data_manager.cls_map)
         metric_duration = time.time() - metric_start_time
         return metric_duration
 
     def _eval(self, eval_context: EvalContext):
         opt = self.opt
-        dataset_cfg = self.dataset_cfg
         model, dataloader = eval_context.model, eval_context.dataset_pack.dataloader
         per_epoch_size = eval_context.dataset_pack.per_epoch_size
         loss = np.zeros(3)
@@ -708,7 +756,7 @@ class EvalManager:
 
             # NMS
             targets[:, 2:] *= np.array([width, height, width, height], targets.dtype)  # to pixels
-            label = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if opt.save_hybrid else []  # for autolabelling
+            label = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if opt.save_hybrid else []  # for autolabel
             out, nms_duration = self._nms(pred_out, label)
             time_stats.nms_duration += nms_duration
 
@@ -717,7 +765,7 @@ class EvalManager:
             metric_duration = self._compute_metrics(img_info, metric_stats)
             time_stats.metric_duration += metric_duration
             # Plot images
-            self.plot_image_samples(batch_idx, img_info)
+            self.io_processor.plot_image_samples(batch_idx, img_info)
 
             LOGGER.info(f"Step {batch_idx + 1}/{per_epoch_size} "
                         f"Time total {(time.time() - step_start_time):.2f}s  "
@@ -728,17 +776,6 @@ class EvalManager:
             step_start_time = time.time()
         metric_stats.set_loss(loss / per_epoch_size)
         return metric_stats, time_stats
-
-    def plot_image_samples(self, batch_idx, img_info: ImgInfo):
-        opt = self.opt
-        dataset_cfg = self.dataset_cfg
-        if not opt.plots or batch_idx >= 3:
-            return
-        img, targets, out, paths, shapes = img_info.unpack()
-        labels_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_labels.jpg')  # labels
-        plot_images(img, targets, paths, labels_path, dataset_cfg['names'])
-        pred_path = os.path.join(self.save_dir, f'test_batch{batch_idx}_pred.jpg')  # predictions
-        plot_images(img, output_to_target(out), paths, pred_path, dataset_cfg['names'])
 
     def _compute_map_stats(self, metric_stats: MetricStatistics):
         opt = self.opt
@@ -754,7 +791,7 @@ class EvalManager:
         if self.opt.rank % 8 != 0:
             return
 
-        pred_stats: list[list] = self._merge_pred_stats(metric_stats)
+        pred_stats: list[list] = self.io_processor.merge_pred_stats(metric_stats)
         pred_stats: list[np.ndarray] = [np.concatenate(item, axis=0) for item in pred_stats]
         metric_stats.pred_stats = pred_stats
 
@@ -766,27 +803,7 @@ class EvalManager:
         nt = np.bincount(pred_stats[3].astype(int), minlength=nc)  # number of targets per class
         metric_stats.nt = nt
 
-        # Print results
-        title = ('{:22s}' + '{:11s}' * 6).format('Class', 'Images', 'Instances', 'P', 'R', 'mAP50', 'mAP50-95')
-        pf = '{:<20s}' + '{:<12d}' * 2 + '{:<12.3g}' * 4  # print format
-        LOGGER.info(title)
-        LOGGER.info(pf.format('all', seen, nt.sum(), *metric_stats.get_mean_stats()))
-
-        # Print results per class
-        if (opt.verbose or (nc < 50 and not self.training)) and nc > 1 and not empty(pred_stats):
-            for i, c in enumerate(metric_stats.ap_cls):
-                # Class     Images  Instances          P          R      mAP50   mAP50-95:
-                LOGGER.info(pf.format(names[c], seen, nt[c], *metric_stats.get_ap_per_class(i)))
-
-    def _merge_pred_stats(self, metric_stats):
-        # Merge prediction stats
-        project_dir = Path(self.save_dir).parent
-        pred_stats: list[list] = [[] for _ in range(len(metric_stats.pred_stats))]
-        for file_path in project_dir.rglob("pred_stats*.npy"):
-            stats = np.load(str(file_path.resolve()), allow_pickle=True)
-            for i, item in enumerate(stats):
-                pred_stats[i].append(item)
-        return pred_stats
+        self.stats_displayer.print_map_stats(metric_stats, pred_stats, self.training)
 
 
 def main():
