@@ -145,18 +145,18 @@ class TrainModelManager(ModelManager):
             k = k[len(ema_prefix):] if ema_prefix in k else k
             if k in trainable_params:
                 if v.shape != trainable_params[k].shape:
-                    print(f"[WARNING] Filter checkpoint parameter: {k}", flush=True)
+                    LOGGER.warning(f"Filter checkpoint parameter: {k}")
                     continue
                 new_params[k] = v
             else:
-                print(f"[WARNING] Checkpoint parameter: {k} not in model", flush=True)
+                LOGGER.warning(f"Checkpoint parameter: {k} not in model")
 
         ms.load_param_into_net(model, new_params)
-        print(f"load ckpt from \"{ckpt_path}\" success.", flush=True)
+        LOGGER.info(f"load ckpt from '{ckpt_path}' success.")
         resume_epoch = 0
         if resume and 'epoch' in param_dict:
             resume_epoch = int(param_dict['epoch'])
-            print(f"[INFO] Resume training from epoch {resume_epoch}", flush=True)
+            LOGGER.info(f"Resume training from epoch {resume_epoch}")
         return resume_epoch
 
     def pretrained_load(self, model, ema):
@@ -197,8 +197,6 @@ class TrainContext:
     ema: Optional[EMA]
     infer_model: Optional[Model]
     optimizer: nn.Cell
-    ckpt_queue: CheckpointQueue
-    ema_ckpt_queue: CheckpointQueue
     train_data_pack: DatasetPack
     val_data_pack: Optional[DatasetPack]
     train_step_net: nn.Cell
@@ -209,6 +207,108 @@ class TrainContext:
         self.model.set_train(training)
         if self.ema is not None:
             self.ema.set_train(training)
+
+
+def modelarts_sync(src_dir, dst_dir):
+    from src.modelarts import sync_data
+    os.makedirs(dst_dir, exist_ok=True)
+    sync_data(src_dir, dst_dir)
+
+
+class CkptManager:
+    def __init__(self, opt):
+        self.opt = opt
+        self.weight_dir = os.path.join(self.opt.save_dir, "weights")
+        self.ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
+        self.ema_ckpt_queue = CheckpointQueue(opt.max_ckpt_num)
+
+    def _modelarts_sync(self, src_dir, dst_dir):
+        if not self.opt.enable_modelarts:
+            return
+        modelarts_sync(src_dir, dst_dir)
+
+    @staticmethod
+    def save_ema(ema, ema_ckpt_path, append_dict=None):
+        params_list = []
+        for p in ema.ema_weights:
+            tmp_param_dict = {'name': p.name[len("ema."):], 'data': Tensor(p.data.asnumpy())}
+            params_list.append(tmp_param_dict)
+        ms.save_checkpoint(params_list, ema_ckpt_path, append_dict=append_dict)
+        LOGGER.info(f"ema ckpt saved at {ema_ckpt_path}")
+
+    def save(self, cur_epoch, model, ema, suffix: str = ''):
+        opt = self.opt
+        # Save checkpoint
+        model_name = Path(opt.cfg).stem  # delete ".yaml" suffix
+        if suffix:
+            model_name += f"_{suffix}"
+        ckpt_path = os.path.join(self.weight_dir, f"{model_name}.ckpt")
+        ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
+        LOGGER.info(f"ckpt saved at {ckpt_path}.")
+        self._modelarts_sync(ckpt_path, os.path.join(opt.train_url, "weights", os.path.basename(ckpt_path)))
+        if ema is None:
+            LOGGER.info(f"ema model is None, skip saving ema model")
+            return
+        ema_ckpt_path = os.path.join(self.weight_dir, f"EMA_{model_name}.ckpt")
+        append_dict = {"updates": ema.updates, "epoch": cur_epoch}
+        self.save_ema(ema, ema_ckpt_path, append_dict)
+        self._modelarts_sync(ema_ckpt_path,
+                             os.path.join(opt.train_url, "weights", os.path.basename(ema_ckpt_path)))
+
+    def save_ckpt_for_train(self, train_context: TrainContext, suffix: str = ''):
+        opt = self.opt
+        cur_epoch = train_context.cur_epoch
+        def is_save_epoch():
+            return (cur_epoch >= opt.start_save_epoch) and (cur_epoch % opt.save_interval == 0)
+
+        def is_master_node():
+            return opt.rank % 8 == 0
+
+        if not opt.save_checkpoint or not is_master_node() or not is_save_epoch():
+            return
+
+        if not suffix:
+            suffix = str(cur_epoch)
+        self.save(cur_epoch, train_context.model, train_context.ema, suffix)
+
+    def save_ckpt_for_eval(self, train_context: TrainContext, suffix: str = ''):
+        cur_epoch = train_context.cur_epoch
+        LOGGER.info("Saving best ckpt for eval...")
+        if not suffix:
+            suffix = 'best'
+        self.save(cur_epoch, train_context.model, train_context.ema, suffix)
+
+
+class LossManager:
+    def __init__(self, opt):
+        self.opt = opt
+
+    def print_epoch_stats(self, train_context: TrainContext, resume_epoch):
+        cur_epoch = train_context.cur_epoch
+        opt = self.opt
+        data_size = train_context.steps_per_epoch
+        train_step_net = train_context.train_step_net
+        loss = train_context.loss
+        LOGGER.info(f"Epoch {opt.epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
+                    f"epoch time {train_context.epoch_time * 1000:.2f} ms, "
+                    f"step time {train_context.epoch_time * 1000 / data_size:.2f} ms, "
+                    f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
+                    f"lbox loss: {train_step_net.network.lbox_loss.asnumpy():.4f}, "
+                    f"lobj loss: {train_step_net.network.lobj_loss.asnumpy():.4f}, "
+                    f"lcls loss: {train_step_net.network.lcls_loss.asnumpy():.4f}.")
+
+    def summarize_loss(self, train_context: TrainContext, summary_record):
+        cur_epoch = train_context.cur_epoch
+        steps_per_epoch = train_context.steps_per_epoch
+        train_step = train_context.train_step_net
+        if not self.opt.summary or (cur_epoch % self.opt.summary_interval == 0):
+            return
+        loss = train_context.loss
+        summary_record.add_value('scalar', 'loss', loss / self.opt.batch_size)
+        summary_record.add_value('scalar', 'lbox', train_step.network.lbox_loss)
+        summary_record.add_value('scalar', 'lobj', train_step.network.lobj_loss)
+        summary_record.add_value('scalar', 'lcls', train_step.network.lcls_loss)
+        summary_record.record(cur_epoch * steps_per_epoch)
 
 
 class TrainManager:
@@ -226,6 +326,8 @@ class TrainManager:
 
         self.data_manager = DataManager(opt, self.cfg, self.hyp)
         self.model_manager = TrainModelManager(opt, self.cfg, self.hyp, self.data_manager.data_cfg)
+        self.ckpt_manager = CkptManager(opt)
+        self.loss_manager = LossManager(opt)
 
     @staticmethod
     def _write_map_result(coco_result, map_str_path, names):
@@ -297,8 +399,6 @@ class TrainManager:
         train_context = TrainContext(
             cur_epoch=0, steps_per_epoch=data_size,
             model=model, ema=ema, optimizer=optimizer, infer_model=infer_model,
-            ckpt_queue=CheckpointQueue(opt.max_ckpt_num),
-            ema_ckpt_queue=CheckpointQueue(opt.max_ckpt_num),
             train_data_pack=train_dataset_pack, val_data_pack=val_dataset_pack,
             train_step_net=train_step_net,
         )
@@ -313,28 +413,14 @@ class TrainManager:
                 epoch_time = end_train_time - start_train_time
                 train_context.loss = loss
                 train_context.epoch_time = epoch_time
-                self.print_epoch_stats(train_context, resume_epoch)
                 train_context.cur_epoch = cur_epoch
-                self.summarize_loss(train_context, summary_record)
+                self.loss_manager.print_epoch_stats(train_context, resume_epoch)
+                self.loss_manager.summarize_loss(train_context, summary_record)
                 if opt.profiler and (cur_epoch == opt.run_profiler_epoch):
                     break
-                self.save_ckpt(train_context)
+                self.ckpt_manager.save_ckpt_for_train(train_context)
                 self.run_eval(train_context, summary_record)
         return 0
-
-    def print_epoch_stats(self, train_context: TrainContext, resume_epoch):
-        cur_epoch = train_context.cur_epoch
-        opt = self.opt
-        data_size = train_context.steps_per_epoch
-        train_step_net = train_context.train_step_net
-        loss = train_context.loss
-        LOGGER.info(f"Epoch {opt.epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
-                    f"epoch time {train_context.epoch_time * 1000:.2f} ms, "
-                    f"step time {train_context.epoch_time * 1000 / data_size:.2f} ms, "
-                    f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
-                    f"lbox loss: {train_step_net.network.lbox_loss.asnumpy():.4f}, "
-                    f"lobj loss: {train_step_net.network.lobj_loss.asnumpy():.4f}, "
-                    f"lcls loss: {train_step_net.network.lcls_loss.asnumpy():.4f}.")
 
     def prepare_for_eval(self, model):
         opt = self.opt
@@ -442,7 +528,7 @@ class TrainManager:
         if opt.summary:
             summary_record.add_value('scalar', 'map', ms.Tensor(coco_result.get_map()))
             summary_record.record(cur_epoch * steps_per_epoch)
-        self.save_eval_results(coco_result, cur_epoch, train_context.ema, train_context.model)
+        self.save_eval_results(coco_result, train_context)
 
     def _eval(self, train_context: TrainContext):
         opt = self.opt
@@ -475,77 +561,21 @@ class TrainManager:
             coco_result = val_result.coco_result
         return coco_result
 
-    @staticmethod
-    def save_ema(ema, ema_ckpt_path, append_dict=None):
-        params_list = []
-        for p in ema.ema_weights:
-            tmp_param_dict = {'name': p.name[len("ema."):], 'data': Tensor(p.data.asnumpy())}
-            params_list.append(tmp_param_dict)
-        ms.save_checkpoint(params_list, ema_ckpt_path, append_dict=append_dict)
-
-    def save_ckpt(self, train_context: TrainContext):
-        opt = self.opt
-        cur_epoch = train_context.cur_epoch
-        def is_save_epoch():
-            return (cur_epoch >= opt.start_save_epoch) and (cur_epoch % opt.save_interval == 0)
-
-        def is_master_node():
-            return opt.rank % 8 == 0
-
-        if not opt.save_checkpoint or not is_master_node() or not is_save_epoch():
-            return
-
-        # Save Checkpoint
-        model_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml"
-        ckpt_path = os.path.join(self.weight_dir, f"{model_name}_{cur_epoch}.ckpt")
-        ms.save_checkpoint(train_context.model, ckpt_path, append_dict={"epoch": cur_epoch})
-        train_context.ckpt_queue.append(ckpt_path)
-        self._modelarts_sync(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
-        if train_context.ema is None:
-            return
-        ema_ckpt_path = os.path.join(self.weight_dir, f"EMA_{model_name}_{cur_epoch}.ckpt")
-        append_dict = {"updates": train_context.ema.updates, "epoch": cur_epoch}
-        self.save_ema(train_context.ema, ema_ckpt_path, append_dict)
-        train_context.ema_ckpt_queue.append(ema_ckpt_path)
-        LOGGER.info(f"Save ckpt path: {ema_ckpt_path}")
-        self._modelarts_sync(ema_ckpt_path,
-                             os.path.join(opt.train_url, "weights", os.path.basename(ema_ckpt_path)))
-
-    def summarize_loss(self, train_context: TrainContext, summary_record):
-        cur_epoch = train_context.cur_epoch
-        steps_per_epoch = train_context.steps_per_epoch
-        train_step = train_context.train_step_net
-        if not self.opt.summary or (cur_epoch % self.opt.summary_interval == 0):
-            return
-        loss = train_context.loss
-        summary_record.add_value('scalar', 'loss', loss / self.opt.batch_size)
-        summary_record.add_value('scalar', 'lbox', train_step.network.lbox_loss)
-        summary_record.add_value('scalar', 'lobj', train_step.network.lobj_loss)
-        summary_record.add_value('scalar', 'lcls', train_step.network.lcls_loss)
-        summary_record.record(cur_epoch * steps_per_epoch)
-
-    def save_eval_results(self, coco_result, cur_epoch, ema, model):
+    def save_eval_results(self, coco_result, train_context: TrainContext):
         opt = self.opt
         cls_names = self.data_cfg['names']
         if opt.rank % 8 != 0:
             return
+        cur_epoch = train_context.cur_epoch
         model_name = Path(opt.cfg).stem  # delete ".yaml" suffix
         map_str_path = os.path.join(self.weight_dir, f"{model_name}_{cur_epoch}_map.txt")
         self._write_map_result(coco_result, map_str_path, cls_names)
         cur_map = coco_result.get_map()
-        if cur_map > self.best_map:
-            self.best_map = cur_map
-            LOGGER.info(f"Best result: Best mAP [{self.best_map}] at epoch [{cur_epoch}]")
-            # save the best checkpoint
-            ckpt_path = os.path.join(self.weight_dir, f"{model_name}_best.ckpt")
-            ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
-            self._modelarts_sync(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
-            if ema:
-                ema_ckpt_path = os.path.join(self.weight_dir, f"EMA_{model_name}_best.ckpt")
-                append_dict = {"updates": ema.updates, "epoch": cur_epoch}
-                self.save_ema(ema, ema_ckpt_path, append_dict)
-                self._modelarts_sync(ema_ckpt_path,
-                                     opt.train_url + "/weights/" + ema_ckpt_path.split("/")[-1])
+        if cur_map <= self.best_map:
+            return
+        self.best_map = cur_map
+        LOGGER.info(f"Best result: Best mAP [{self.best_map}] at epoch [{cur_epoch}]")
+        self.ckpt_manager.save_ckpt_for_eval(train_context)
 
     def get_loss_scaler(self):
         opt = self.opt
@@ -560,9 +590,7 @@ class TrainManager:
     def _modelarts_sync(self, src_dir, dst_dir):
         if not self.opt.enable_modelarts:
             return
-        from src.modelarts import sync_data
-        os.makedirs(dst_dir, exist_ok=True)
-        sync_data(src_dir, dst_dir)
+        modelarts_sync(src_dir, dst_dir)
 
 
 def init_env(opt):

@@ -568,7 +568,6 @@ class EvalManager:
         self.io_processor = IOProcessor(opt, self.dataset_cfg)
         self.stats_displayer = StatsDisplayer(opt, self.dataset_cfg)
 
-        self.dataset_cfg: dict
         self.confusion_matrix = ConfusionMatrix(nc=self.dataset_cfg['nc'])
         self.project_dir: str = ''
         self.save_dir: str = './'
@@ -824,12 +823,11 @@ def main():
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('coco.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
-    print(opt)
 
     init_env(opt)
 
     if opt.task in ('train', 'val', 'test'):  # run normally
-        print("opt:", opt)
+        LOGGER.info("opt:", opt)
         opt.save_txt = opt.save_txt | opt.save_hybrid
         eval_manager = EvalManager(opt)
         eval_manager.eval()
@@ -850,7 +848,7 @@ def main():
         opt.save_json = False
 
         for i in x:  # img-size
-            print(f'\nRunning {f} point {i}...')
+            LOGGER.info(f'\nRunning {f} point {i}...')
             eval_manager = EvalManager(opt)
             metric_stats, _, speed, _ = eval_manager.eval()
             y.append(tuple(metric_stats)[:7] + speed)  # results and times
